@@ -79,8 +79,8 @@ class SyncFieldDefinitionsTests(TestCase):
 
     def test_sync_field_definitions_creates_records(self):
         with patch.dict(os.environ, {"AFFINDA_ORG_ID": "org-123"}):
-            with patch("affinda_bridge.views.AffindaClient", BaseMockClient):
-                response = self.client.post("/affina/api/sync-field-definitions/")
+            with patch("affinda_bridge.api_views.AffindaClient", BaseMockClient):
+                response = self.client.post("/api/workspaces/sync/")
 
         assert response.status_code == 200
         payload = response.json()
@@ -104,12 +104,12 @@ class SyncFieldDefinitionsTests(TestCase):
 
     def test_sync_field_definitions_upserts(self):
         with patch.dict(os.environ, {"AFFINDA_ORG_ID": "org-123"}):
-            with patch("affinda_bridge.views.AffindaClient", BaseMockClient):
-                response = self.client.post("/affina/api/sync-field-definitions/")
+            with patch("affinda_bridge.api_views.AffindaClient", BaseMockClient):
+                response = self.client.post("/api/workspaces/sync/")
                 assert response.status_code == 200
 
-            with patch("affinda_bridge.views.AffindaClient", UpdatedMockClient):
-                response = self.client.post("/affina/api/sync-field-definitions/")
+            with patch("affinda_bridge.api_views.AffindaClient", UpdatedMockClient):
+                response = self.client.post("/api/workspaces/sync/")
                 assert response.status_code == 200
 
         assert Workspace.objects.count() == 2
