@@ -5,7 +5,7 @@ Get the Data Nexus Bridge Service up and running in minutes!
 ## Prerequisites
 
 - Python 3.12+ installed
-- Node.js 20+ installed
+- Node.js 20.0+ installed (tested with 20.11.1)
 - VS Code (recommended)
 
 ## 1. Backend Setup (Django)
@@ -94,7 +94,8 @@ npx tsc --noEmit
 
 ### Frontend won't start
 - Run `npm install` in frontend directory
-- Check Node.js version: `node --version` (should be 20+)
+- Check Node.js version: `node --version` (should be 20.0+, tested with 20.11.1)
+- If you see Vite errors about Node.js version, the packages have been configured to work with Node 20.11+
 - Delete `node_modules` and `package-lock.json`, then `npm install`
 
 ### CORS errors

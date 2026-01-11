@@ -2,12 +2,13 @@
 
 A Django REST Framework backend service for managing Affinda API integrations with a React frontend.
 
-## Backend Setup
-
-### Prerequisites
+## Prerequisites
 
 - Python 3.12+
-- Virtual environment
+- Node.js 20.0+ (tested with 20.11.1)
+- Virtual environment (Python)
+
+## Backend Setup
 
 ### Installation
 

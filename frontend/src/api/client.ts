@@ -9,6 +9,34 @@ export const apiClient = axios.create({
   },
 });
 
+// Add authentication token to all requests
+apiClient.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('authToken');
+    if (token) {
+      config.headers.Authorization = `Token ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Handle 401 unauthorized responses (token expired/invalid)
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      // Token is invalid or expired, clear auth data and redirect to login
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('user');
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
+);
+
 // API response types
 export interface Workspace {
   id: number;
