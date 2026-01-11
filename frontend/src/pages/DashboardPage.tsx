@@ -1,4 +1,44 @@
+import { useEffect, useState } from 'react';
+import { workspacesApi, collectionsApi, documentsApi } from '../api/client';
+
+interface DashboardStats {
+  workspaces: number;
+  collections: number;
+  documents: number;
+}
+
 function DashboardPage() {
+  const [stats, setStats] = useState<DashboardStats>({
+    workspaces: 0,
+    collections: 0,
+    documents: 0,
+  });
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const [workspacesRes, collectionsRes, documentsRes] = await Promise.all([
+          workspacesApi.list(),
+          collectionsApi.list(),
+          documentsApi.list(),
+        ]);
+
+        setStats({
+          workspaces: workspacesRes.data.count,
+          collections: collectionsRes.data.count,
+          documents: documentsRes.data.count,
+        });
+      } catch (error) {
+        console.error('Failed to fetch dashboard stats:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchStats();
+  }, []);
+
   return (
     <div className="p-12 w-full">
       <div className="mb-10">
@@ -13,7 +53,9 @@ function DashboardPage() {
           </div>
           <div className="flex-1">
             <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-1">Workspaces</h3>
-            <p className="text-3xl font-bold text-gray-900">0</p>
+            <p className="text-3xl font-bold text-gray-900">
+              {isLoading ? '...' : stats.workspaces}
+            </p>
           </div>
         </div>
 
@@ -23,7 +65,9 @@ function DashboardPage() {
           </div>
           <div className="flex-1">
             <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-1">Collections</h3>
-            <p className="text-3xl font-bold text-gray-900">0</p>
+            <p className="text-3xl font-bold text-gray-900">
+              {isLoading ? '...' : stats.collections}
+            </p>
           </div>
         </div>
 
@@ -33,7 +77,9 @@ function DashboardPage() {
           </div>
           <div className="flex-1">
             <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-1">Documents</h3>
-            <p className="text-3xl font-bold text-gray-900">0</p>
+            <p className="text-3xl font-bold text-gray-900">
+              {isLoading ? '...' : stats.documents}
+            </p>
           </div>
         </div>
 

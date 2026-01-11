@@ -85,13 +85,23 @@ export interface Document {
   custom_identifier: string;
   file_name: string;
   file_url: string;
+  workspace: number;
   workspace_name: string;
+  collection: number;
   collection_name: string;
   state: string;
+  is_confirmed?: boolean;
   in_review: boolean;
   failed: boolean;
   ready: boolean;
+  validatable?: boolean;
+  has_challenges?: boolean;
   created_dt: string;
+  uploaded_dt?: string;
+  data?: Record<string, any>;
+  meta?: Record<string, any>;
+  tags?: string[];
+  raw: Record<string, any>;
 }
 
 export interface PaginatedResponse<T> {

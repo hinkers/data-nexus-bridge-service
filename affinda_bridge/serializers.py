@@ -120,12 +120,17 @@ class DocumentListSerializer(serializers.ModelSerializer):
             "identifier",
             "custom_identifier",
             "file_name",
+            "file_url",
+            "workspace",
             "workspace_name",
+            "collection",
             "collection_name",
             "state",
             "in_review",
             "failed",
             "ready",
             "created_dt",
+            "data",
+            "raw",
         ]
         read_only_fields = ["id", "created_dt"]
