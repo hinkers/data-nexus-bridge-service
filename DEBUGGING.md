@@ -14,29 +14,59 @@ This guide covers debugging both the Django backend and React frontend using VS 
 
 Press `F5` or go to Run & Debug (`Ctrl+Shift+D`) and select:
 
-#### 1. Python: Django
+#### Full Stack Debugging (Recommended)
+
+##### 1. Full Stack: Django + React
+- **Use for:** Debug both backend and frontend simultaneously
+- **What it does:** Starts Django server (no reload) + launches Chrome with React app
+- **Port:** Backend on 8000, Frontend on 5173
+- **Features:** Set breakpoints in both Python and TypeScript code
+- **Best for:** Full application debugging
+
+##### 2. Full Stack: Django + React (Edge)
+- Same as above but uses Microsoft Edge instead of Chrome
+
+#### Backend Only
+
+##### 3. Python: Django
 - **Use for:** Normal Django development with auto-reload
 - **Port:** 8000
 - **Features:** Hot reload enabled, breakpoints work after server restart
 
-#### 2. Python: Django (No Reload)
+##### 4. Python: Django (No Reload)
 - **Use for:** When you need stable breakpoints
 - **Port:** 8000
 - **Features:** No auto-reload, breakpoints are stable
 - **Best for:** Debugging specific issues that require multiple requests
 
-#### 3. Python: pytest
+##### 5. Python: pytest
 - **Use for:** Debugging a specific test file
 - **How to use:** Open a test file and press `F5`
 - **Features:** Runs only the current test file with debugger attached
 
-#### 4. Python: pytest (All Tests)
+##### 6. Python: pytest (All Tests)
 - **Use for:** Debugging test suite
 - **Features:** Runs all tests with debugger attached
 
-#### 5. Python: Django Shell
+##### 7. Python: Django Shell
 - **Use for:** Interactive debugging in Django shell
 - **Features:** Access to all models and Django functionality
+
+#### Frontend Only
+
+##### 8. Frontend: Launch Chrome
+- **Use for:** Debug React app in Chrome
+- **Port:** 5173
+- **Features:** Source maps enabled, React DevTools work
+- **Note:** Automatically starts Vite dev server
+
+##### 9. Frontend: Launch Edge
+- **Use for:** Debug React app in Edge
+- Same as Chrome but uses Edge browser
+
+##### 10. Frontend: Attach to Chrome
+- **Use for:** Attach to already running Chrome instance
+- **Requirements:** Start Chrome with `--remote-debugging-port=9222`
 
 ### Setting Breakpoints
 
@@ -55,12 +85,18 @@ Press `F5` or go to Run & Debug (`Ctrl+Shift+D`) and select:
 
 ### Useful Tasks (Ctrl+Shift+P → Tasks: Run Task)
 
+**Backend Tasks:**
 - **Run Django Server** - Start server without debugger
 - **Run Tests** - Run pytest without debugger
 - **Make Migrations** - Create new migrations
 - **Run Migrations** - Apply migrations
 - **Django Shell** - Open Django shell
 - **Create Superuser** - Create admin user
+
+**Frontend Tasks:**
+- **Start Frontend Dev Server** - Start Vite dev server (background)
+- **Build Frontend** - Production build
+- **Frontend Type Check** - Run TypeScript compiler check
 
 ### Example: Debugging an API View
 
@@ -266,45 +302,87 @@ Shows:
 - Query refetching
 - Manual query invalidation
 
-## Multi-Project Debugging
+## Full Stack Debugging
 
-### VS Code Workspace
+### Quick Start: Debug Both Backend & Frontend
 
-Create a workspace file to debug both projects:
+The easiest way to debug the entire application:
 
-1. File → Save Workspace As
-2. Save as `data-nexus.code-workspace`:
+1. Press `F5` in VS Code
+2. Select **"Full Stack: Django + React"**
+3. Both Django backend and React frontend start with debuggers attached
+4. Set breakpoints in Python files (`.py`) and TypeScript files (`.tsx`, `.ts`)
+5. Interact with the app in the browser that opens
 
-```json
-{
-  "folders": [
-    {
-      "path": "data-nexus-bridge-service",
-      "name": "Backend"
-    },
-    {
-      "path": "data-nexus-frontend",
-      "name": "Frontend"
-    }
-  ],
-  "settings": {}
-}
-```
+### How It Works
 
-Now you can:
-- See both projects in sidebar
-- Debug both simultaneously
-- Set breakpoints in both backend and frontend
+The "Full Stack" debug configuration:
+- Starts Django server on port 8000 (with debugger)
+- Starts Vite dev server on port 5173 (background task)
+- Launches Chrome with the React app (with debugger)
+- Links both debuggers to VS Code
 
-### Debugging Full Request Flow
+### Debugging a Complete Request Flow
 
-1. Set breakpoint in React: `workspacesApi.list()`
-2. Set breakpoint in Django: `WorkspaceViewSet.list()`
-3. Start both debuggers:
-   - Backend: `F5` → "Python: Django (No Reload)"
-   - Frontend: `F5` → "Launch Chrome"
-4. Trigger action in React app
-5. Debugger pauses in React → Continue → Pauses in Django
+**Example: Debug the sync workspaces feature**
+
+1. **Press `F5`** → Select "Full Stack: Django + React"
+
+2. **Set backend breakpoint:**
+   ```python
+   # In affinda_bridge/api_views.py
+   class WorkspaceViewSet(viewsets.ReadOnlyModelViewSet):
+       @action(detail=False, methods=["post"])
+       def sync(self, request):
+           organization = os.environ.get("AFFINDA_ORG_ID")
+           # Set breakpoint here ↓
+           if not organization:
+               return Response(...)
+   ```
+
+3. **Set frontend breakpoint:**
+   ```typescript
+   // In frontend/src/pages/WorkspacesPage.tsx
+   const syncMutation = useMutation({
+     mutationFn: () => {
+       // Set breakpoint here ↓
+       return workspacesApi.sync();
+     },
+     onSuccess: () => { ... }
+   });
+   ```
+
+4. **In the browser** that opened:
+   - Navigate to Workspaces page
+   - Click "Sync from Affinda" button
+
+5. **Observe the flow:**
+   - Debugger pauses in TypeScript at frontend breakpoint
+   - Press `F5` (Continue)
+   - HTTP request is sent to Django
+   - Debugger pauses in Python at backend breakpoint
+   - Inspect `request.data`, `organization`, etc.
+   - Press `F5` (Continue)
+   - Response returns to frontend
+
+### Debugging Only Backend or Frontend
+
+If you only need to debug one side:
+
+**Backend only:**
+- `F5` → "Python: Django (No Reload)"
+
+**Frontend only:**
+- `F5` → "Frontend: Launch Chrome"
+- (This automatically starts the Vite dev server)
+
+### Stopping Debuggers
+
+When running "Full Stack" mode:
+- Press `Shift+F5` to stop all debuggers
+- Or click the red square "Stop" button in Debug toolbar
+
+This stops both Django and Chrome debuggers.
 
 ## Tips & Tricks
 

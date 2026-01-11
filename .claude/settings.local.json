@@ -6,6 +6,9 @@
       "Bash(.venv/Scripts/python -m pytest -v)",
       "Bash(.venv/Scripts/python:*)",
       "Bash(curl:*)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\hinke\\Repos\\data-nexus-frontend"
     ]
   }
 }

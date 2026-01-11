@@ -33,7 +33,7 @@ Your Django REST Framework + React application is now set up and ready to use.
 
 ### Frontend (React + TypeScript + Vite)
 
-Created in `../data-nexus-frontend/`
+Created in `frontend/`
 
 1. **Installed packages:**
    - React 18 with TypeScript
@@ -67,7 +67,7 @@ Backend runs at: **http://localhost:8000**
 ### Start Frontend (Terminal 2)
 
 ```bash
-cd c:\Users\hinke\Repos\data-nexus-frontend
+cd frontend
 npm run dev
 ```
 
@@ -143,19 +143,18 @@ data-nexus-bridge-service/
 ├── data_nexus_bridge_service/
 │   ├── settings.py          # Django settings (DRF + CORS configured)
 │   └── urls.py              # Main URL config
+├── frontend/                # React frontend
+│   ├── src/
+│   │   ├── api/
+│   │   │   └── client.ts    # API client & types
+│   │   ├── pages/
+│   │   │   ├── WorkspacesPage.tsx
+│   │   │   ├── CollectionsPage.tsx
+│   │   │   └── DocumentsPage.tsx
+│   │   ├── App.tsx          # Main app component
+│   │   └── App.css          # App styles
+│   └── .env                 # Environment config
 └── pytest.ini               # Pytest configuration
-
-data-nexus-frontend/
-├── src/
-│   ├── api/
-│   │   └── client.ts        # API client & types
-│   ├── pages/
-│   │   ├── WorkspacesPage.tsx
-│   │   ├── CollectionsPage.tsx
-│   │   └── DocumentsPage.tsx
-│   ├── App.tsx              # Main app component
-│   └── App.css              # App styles
-└── .env                     # Environment config
 ```
 
 ## Troubleshooting

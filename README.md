@@ -70,13 +70,13 @@ The API will be available at `http://localhost:8000/api/`
 
 ## Frontend Setup
 
-The React frontend is located in `../data-nexus-frontend/`
+The React frontend is located in `frontend/`
 
 ### Installation
 
 1. Navigate to the frontend directory:
    ```bash
-   cd ../data-nexus-frontend
+   cd frontend
    ```
 
 2. Install dependencies:
