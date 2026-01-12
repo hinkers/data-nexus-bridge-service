@@ -118,3 +118,33 @@ class Document(models.Model):
 
     def __str__(self) -> str:
         return self.custom_identifier or self.file_name or self.identifier
+
+
+class SyncHistory(models.Model):
+    SYNC_TYPE_WORKSPACES = "workspaces"
+    SYNC_TYPE_COLLECTIONS = "collections"
+    SYNC_TYPE_FIELD_DEFINITIONS = "field_definitions"
+    SYNC_TYPE_DOCUMENTS = "documents"
+    SYNC_TYPE_CHOICES = [
+        (SYNC_TYPE_WORKSPACES, "Workspaces"),
+        (SYNC_TYPE_COLLECTIONS, "Collections"),
+        (SYNC_TYPE_FIELD_DEFINITIONS, "Field Definitions"),
+        (SYNC_TYPE_DOCUMENTS, "Documents"),
+    ]
+
+    sync_type = models.CharField(max_length=32, choices=SYNC_TYPE_CHOICES)
+    started_at = models.DateTimeField(default=timezone.now)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    success = models.BooleanField(default=False)
+    records_synced = models.IntegerField(default=0)
+    error_message = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-started_at"]
+        indexes = [
+            models.Index(fields=["sync_type", "-started_at"]),
+        ]
+
+    def __str__(self) -> str:
+        status = "Success" if self.success else "Failed"
+        return f"{self.get_sync_type_display()} - {status} at {self.started_at}"

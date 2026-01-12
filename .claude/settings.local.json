@@ -16,7 +16,9 @@
       "Bash(git rm:*)",
       "Bash(git reset:*)",
       "Bash(pip install:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(.venv/Scripts/activate)",
+      "Bash(.venv\\\\\\\\Scripts\\\\\\\\python.exe:*)"
     ],
     "additionalDirectories": [
       "c:\\Users\\hinke\\Repos\\data-nexus-frontend"

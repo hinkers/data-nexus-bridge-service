@@ -5,6 +5,7 @@ from affinda_bridge.models import (
     DataPoint,
     Document,
     FieldDefinition,
+    SyncHistory,
     Workspace,
 )
 
@@ -136,3 +137,18 @@ class DocumentListSerializer(serializers.ModelSerializer):
             "raw",
         ]
         read_only_fields = ["id", "created_dt"]
+
+
+class SyncHistorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SyncHistory
+        fields = [
+            "id",
+            "sync_type",
+            "started_at",
+            "completed_at",
+            "success",
+            "records_synced",
+            "error_message",
+        ]
+        read_only_fields = ["id", "started_at"]

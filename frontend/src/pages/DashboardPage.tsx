@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { workspacesApi, collectionsApi, documentsApi } from '../api/client';
+import { workspacesApi, collectionsApi, documentsApi, syncHistoryApi, type LatestSyncs } from '../api/client';
 
 interface DashboardStats {
   workspaces: number;
@@ -14,14 +14,16 @@ function DashboardPage() {
     documents: 0,
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [latestSyncs, setLatestSyncs] = useState<LatestSyncs>({});
 
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const [workspacesRes, collectionsRes, documentsRes] = await Promise.all([
+        const [workspacesRes, collectionsRes, documentsRes, syncsRes] = await Promise.all([
           workspacesApi.list(),
           collectionsApi.list(),
           documentsApi.list(),
+          syncHistoryApi.latest(),
         ]);
 
         setStats({
@@ -29,6 +31,7 @@ function DashboardPage() {
           collections: collectionsRes.data.count,
           documents: documentsRes.data.count,
         });
+        setLatestSyncs(syncsRes.data);
       } catch (error) {
         console.error('Failed to fetch dashboard stats:', error);
       } finally {
@@ -83,13 +86,26 @@ function DashboardPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl p-8 shadow-sm flex items-center gap-6 hover:-translate-y-0.5 hover:shadow-lg transition-all">
-          <div className="text-5xl w-16 h-16 flex items-center justify-center bg-gradient-to-br from-purple-500 to-blue-600 rounded-xl flex-shrink-0">
-            ✅
+        <div className="bg-white rounded-xl p-8 shadow-sm flex flex-col gap-2 hover:-translate-y-0.5 hover:shadow-lg transition-all">
+          <div className="flex items-center gap-3">
+            <div className="text-3xl w-12 h-12 flex items-center justify-center bg-gradient-to-br from-purple-500 to-blue-600 rounded-xl flex-shrink-0">
+              🔄
+            </div>
+            <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide">Last Sync</h3>
           </div>
-          <div className="flex-1">
-            <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-1">Status</h3>
-            <p className="text-3xl font-bold text-gray-900">Ready</p>
+          <div className="mt-2">
+            {isLoading ? (
+              <p className="text-sm text-gray-500">Loading...</p>
+            ) : latestSyncs.field_definitions?.completed_at ? (
+              <>
+                <p className="text-xs text-gray-500 mb-1">Field Definitions</p>
+                <p className="text-sm font-medium text-gray-900">
+                  {new Date(latestSyncs.field_definitions.completed_at).toLocaleString()}
+                </p>
+              </>
+            ) : (
+              <p className="text-sm text-gray-500">No syncs yet</p>
+            )}
           </div>
         </div>
       </div>

@@ -5,6 +5,7 @@ from affinda_bridge.models import (
     DataPoint,
     Document,
     FieldDefinition,
+    SyncHistory,
     Workspace,
 )
 
@@ -68,3 +69,13 @@ class DocumentAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
     )
+
+
+@admin.register(SyncHistory)
+class SyncHistoryAdmin(admin.ModelAdmin):
+    list_display = ['id', 'sync_type', 'started_at', 'completed_at', 'success', 'records_synced']
+    list_filter = ['sync_type', 'success', 'started_at']
+    search_fields = ['error_message']
+    ordering = ['-started_at']
+    readonly_fields = ['started_at']
+    date_hierarchy = 'started_at'

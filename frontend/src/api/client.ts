@@ -105,6 +105,22 @@ export interface Document {
   raw: Record<string, any>;
 }
 
+export interface SyncHistory {
+  id: number;
+  sync_type: string;
+  started_at: string;
+  completed_at: string | null;
+  success: boolean;
+  records_synced: number;
+  error_message: string;
+}
+
+export interface LatestSyncs {
+  workspaces?: SyncHistory;
+  collections?: SyncHistory;
+  field_definitions?: SyncHistory;
+}
+
 export interface PaginatedResponse<T> {
   count: number;
   next: string | null;
@@ -143,4 +159,8 @@ export const documentsApi = {
   list: (params?: { workspace?: string; collection?: string; state?: string }) =>
     apiClient.get<PaginatedResponse<Document>>('/api/documents/', { params }),
   get: (id: number) => apiClient.get<Document>(`/api/documents/${id}/`),
+};
+
+export const syncHistoryApi = {
+  latest: () => apiClient.get<LatestSyncs>('/api/sync-history/latest/'),
 };
