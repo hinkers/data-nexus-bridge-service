@@ -6,6 +6,8 @@ interface DashboardLayoutProps {
   children: ReactNode;
 }
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+
 function DashboardLayout({ children }: DashboardLayoutProps) {
   const { user, logout } = useAuth();
   const location = useLocation();
@@ -50,7 +52,18 @@ function DashboardLayout({ children }: DashboardLayoutProps) {
           ))}
         </nav>
 
-        <div className="p-6 border-t border-white/10">
+        <div className="p-6 border-t border-white/10 space-y-2">
+          {user?.is_staff && (
+            <a
+              href={`${API_BASE_URL}/admin/`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-3 w-full px-4 py-3.5 bg-purple-500/10 text-purple-300 border border-purple-500/20 rounded-lg text-sm font-medium hover:bg-purple-500/20 hover:text-purple-200 transition-all"
+            >
+              <span className="text-xl">⚙️</span>
+              <span>Admin Panel</span>
+            </a>
+          )}
           <button
             onClick={handleLogout}
             className="flex items-center gap-3 w-full px-4 py-3.5 bg-red-500/10 text-red-300 border border-red-500/20 rounded-lg text-sm font-medium hover:bg-red-500/20 hover:text-red-200 transition-all"

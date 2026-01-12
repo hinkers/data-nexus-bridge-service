@@ -6,7 +6,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000
 
 interface AuthContextType {
   isAuthenticated: boolean;
-  user: { id: number; username: string; email: string } | null;
+  user: { id: number; username: string; email: string; is_staff?: boolean } | null;
   login: (username: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
 }
@@ -17,7 +17,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     return !!localStorage.getItem('authToken');
   });
-  const [user, setUser] = useState<{ id: number; username: string; email: string } | null>(() => {
+  const [user, setUser] = useState<{ id: number; username: string; email: string; is_staff?: boolean } | null>(() => {
     const savedUser = localStorage.getItem('user');
     return savedUser ? JSON.parse(savedUser) : null;
   });
