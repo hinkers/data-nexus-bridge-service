@@ -9,7 +9,12 @@
       "Bash(npm install:*)",
       "Bash(npm run dev:*)",
       "Bash(npx tailwindcss:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(source:*)",
+      "Bash(python manage.py makemigrations:*)",
+      "Bash(python manage.py migrate:*)",
+      "Bash(git rm:*)",
+      "Bash(git reset:*)"
     ],
     "additionalDirectories": [
       "c:\\Users\\hinke\\Repos\\data-nexus-frontend"

@@ -98,6 +98,7 @@ class Document(models.Model):
 
     created_dt = models.DateTimeField(default=timezone.now)
     uploaded_dt = models.DateTimeField(null=True, blank=True)
+    last_updated_dt = models.DateTimeField(null=True, blank=True)
 
     # Extracted data stored as JSON
     data = models.JSONField(default=dict, blank=True)
