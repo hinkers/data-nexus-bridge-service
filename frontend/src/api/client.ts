@@ -98,6 +98,7 @@ export interface Document {
   has_challenges?: boolean;
   created_dt: string;
   uploaded_dt?: string;
+  last_updated_dt?: string;
   data?: Record<string, any>;
   meta?: Record<string, any>;
   tags?: string[];

@@ -99,6 +99,7 @@ class DocumentSerializer(serializers.ModelSerializer):
             "has_challenges",
             "created_dt",
             "uploaded_dt",
+            "last_updated_dt",
             "data",
             "meta",
             "tags",
@@ -130,6 +131,7 @@ class DocumentListSerializer(serializers.ModelSerializer):
             "failed",
             "ready",
             "created_dt",
+            "last_updated_dt",
             "data",
             "raw",
         ]

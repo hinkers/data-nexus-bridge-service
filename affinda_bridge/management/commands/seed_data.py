@@ -213,6 +213,9 @@ class Command(BaseCommand):
         )
 
         # Create Documents
+        from datetime import datetime, timedelta
+        from django.utils import timezone as tz
+
         Document.objects.create(
             identifier='doc-inv-001',
             custom_identifier='INV-2024-001',
@@ -224,6 +227,7 @@ class Command(BaseCommand):
             in_review=False,
             failed=False,
             ready=True,
+            last_updated_dt=tz.now() - timedelta(days=5),
             data={
                 'invoice_number': 'INV-2024-001',
                 'invoice_date': '2024-01-15',
@@ -243,6 +247,7 @@ class Command(BaseCommand):
             in_review=False,
             failed=False,
             ready=True,
+            last_updated_dt=tz.now() - timedelta(days=3),
             data={
                 'invoice_number': 'INV-2024-002',
                 'invoice_date': '2024-02-10',
@@ -262,6 +267,7 @@ class Command(BaseCommand):
             in_review=True,
             failed=False,
             ready=False,
+            last_updated_dt=tz.now() - timedelta(hours=12),
             data={
                 'invoice_number': 'INV-2024-003',
                 'invoice_date': '2024-03-05',
@@ -281,6 +287,7 @@ class Command(BaseCommand):
             in_review=False,
             failed=False,
             ready=True,
+            last_updated_dt=tz.now() - timedelta(days=7),
             data={
                 'merchant_name': 'Office Depot',
                 'purchase_date': '2024-01-20'
@@ -299,6 +306,7 @@ class Command(BaseCommand):
             in_review=False,
             failed=False,
             ready=True,
+            last_updated_dt=tz.now() - timedelta(days=2),
             data={
                 'merchant_name': 'The French Bistro',
                 'purchase_date': '2024-02-15'
@@ -317,6 +325,7 @@ class Command(BaseCommand):
             in_review=False,
             failed=False,
             ready=True,
+            last_updated_dt=tz.now() - timedelta(days=10),
             data={
                 'vendor_name': 'TechServices Inc.'
             },
@@ -334,6 +343,7 @@ class Command(BaseCommand):
             in_review=False,
             failed=False,
             ready=True,
+            last_updated_dt=tz.now() - timedelta(days=15),
             data={
                 'vendor_name': 'Downtown Properties LLC'
             },
@@ -351,6 +361,7 @@ class Command(BaseCommand):
             in_review=False,
             failed=True,
             ready=False,
+            last_updated_dt=tz.now() - timedelta(hours=6),
             data={},
             raw={'processed_at': '2024-03-10T12:00:00Z', 'error': 'File corrupted'}
         )

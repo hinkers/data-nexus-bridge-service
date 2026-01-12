@@ -75,14 +75,21 @@ function DocumentsPage() {
     return fieldDefinitions.filter(fd => fd.collection === doc.collection);
   };
 
-  const filteredDocuments = documents.filter(doc => {
-    if (!searchQuery) return true;
-    const query = searchQuery.toLowerCase();
-    return (
-      doc.file_name.toLowerCase().includes(query) ||
-      doc.custom_identifier.toLowerCase().includes(query)
-    );
-  });
+  const filteredDocuments = documents
+    .filter(doc => {
+      if (!searchQuery) return true;
+      const query = searchQuery.toLowerCase();
+      return (
+        doc.file_name.toLowerCase().includes(query) ||
+        doc.custom_identifier.toLowerCase().includes(query)
+      );
+    })
+    .sort((a, b) => {
+      // Sort by created_dt, newest first
+      const dateA = new Date(a.created_dt).getTime();
+      const dateB = new Date(b.created_dt).getTime();
+      return dateB - dateA;
+    });
 
   return (
     <div className="p-12 w-full">
@@ -143,7 +150,12 @@ function DocumentsPage() {
                     <h3 className="font-semibold text-gray-900 mb-1">{doc.file_name}</h3>
                     <p className="text-sm text-gray-500">{doc.custom_identifier}</p>
                   </div>
-                  {getStatusBadge(doc)}
+                  <div className="flex flex-col items-end gap-2">
+                    {getStatusBadge(doc)}
+                    <div className="text-xs text-gray-500">
+                      {new Date(doc.created_dt).toLocaleString()}
+                    </div>
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
                   <div>
@@ -199,6 +211,12 @@ function DocumentsPage() {
                     <span className="text-sm font-medium text-gray-600">Created:</span>
                     <p className="text-gray-900">{new Date(selectedDocument.created_dt).toLocaleString()}</p>
                   </div>
+                  {selectedDocument.last_updated_dt && (
+                    <div>
+                      <span className="text-sm font-medium text-gray-600">Last Updated:</span>
+                      <p className="text-gray-900">{new Date(selectedDocument.last_updated_dt).toLocaleString()}</p>
+                    </div>
+                  )}
                 </div>
               </div>
 
