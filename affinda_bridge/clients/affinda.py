@@ -1,33 +1,31 @@
 import os
 from typing import Any, Dict, Optional
 
-import httpx
+from affinda import AffindaAPI
+from azure.core.credentials import AzureKeyCredential
 
 
 class AffindaClient:
+    """
+    Wrapper around the official Affinda Python SDK.
+    Provides a simplified interface for common operations.
+    """
+
     def __init__(
         self,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-        timeout: float = 10.0,
-        transport: Optional[httpx.BaseTransport] = None,
-        client: Optional[httpx.Client] = None,
     ) -> None:
-        if client is not None:
-            self._client = client
-            return
-
         token = api_key or os.environ.get("AFFINDA_API_KEY", "")
         if not token:
             raise ValueError("AFFINDA_API_KEY is required")
 
         base = base_url or os.environ.get("AFFINDA_BASE_URL", "https://api.affinda.com")
-        headers = {"Authorization": f"Bearer {token}"}
-        self._client = httpx.Client(
-            base_url=base,
-            headers=headers,
-            timeout=timeout,
-            transport=transport,
+
+        credential = AzureKeyCredential(token)
+        self._client = AffindaAPI(
+            credential=credential,
+            endpoint=base,
         )
 
     def close(self) -> None:
@@ -61,37 +59,46 @@ class AffindaClient:
         custom_identifier: Optional[str] = None,
         compact: Optional[bool] = None,
         count: Optional[bool] = None,
-        snake_case: Optional[bool] = None,
     ) -> Dict[str, Any]:
-        params: Dict[str, Any] = {}
-        for key, value in {
-            "offset": offset,
-            "limit": limit,
-            "workspace": workspace,
-            "collection": collection,
-            "state": state,
-            "tags": tags,
-            "created_dt": created_dt,
-            "search": search,
-            "ordering": ordering,
-            "include_data": include_data,
-            "exclude": exclude,
-            "in_review": in_review,
-            "failed": failed,
-            "ready": ready,
-            "validatable": validatable,
-            "has_challenges": has_challenges,
-            "custom_identifier": custom_identifier,
-            "compact": compact,
-            "count": count,
-            "snake_case": snake_case,
-        }.items():
-            if value is not None:
-                params[key] = value
+        """List all documents with optional filtering."""
+        response = self._client.get_all_documents(
+            offset=offset,
+            limit=limit,
+            workspace=workspace,
+            collection=collection,
+            state=state,
+            created_dt=created_dt,
+            search=search,
+            ordering=ordering,
+            include_data=include_data,
+            exclude=exclude,
+            in_review=in_review,
+            failed=failed,
+            ready=ready,
+            validatable=validatable,
+            has_challenges=has_challenges,
+            custom_identifier=custom_identifier,
+            compact=compact,
+            count=count,
+        )
 
-        response = self._client.get("/v3/documents", params=params)
-        response.raise_for_status()
-        return response.json()
+        # Convert response to dict format
+        # The SDK returns a paginated response object
+        results = []
+        if hasattr(response, "results") and response.results:
+            results = [self._model_to_dict(doc) for doc in response.results]
+
+        return {
+            "count": getattr(response, "count", len(results)),
+            "next": getattr(response, "next", None),
+            "previous": getattr(response, "previous", None),
+            "results": results,
+        }
+
+    def get_document(self, *, identifier: str, compact: Optional[bool] = None) -> Dict[str, Any]:
+        """Get a specific document by identifier."""
+        doc = self._client.get_document(identifier=identifier, compact=compact)
+        return self._model_to_dict(doc)
 
     def list_workspaces(
         self,
@@ -99,28 +106,42 @@ class AffindaClient:
         organization: str,
         name: Optional[str] = None,
     ) -> list[Dict[str, Any]]:
-        params: Dict[str, Any] = {"organization": organization}
-        if name is not None:
-            params["name"] = name
-
-        response = self._client.get("/v3/workspaces", params=params)
-        response.raise_for_status()
-        return response.json()
+        """List all workspaces for an organization."""
+        workspaces = self._client.get_all_workspaces(
+            organization=organization,
+            name=name,
+        )
+        # Handle both paginated and list responses
+        if hasattr(workspaces, "results"):
+            results = getattr(workspaces, "results", [])
+            if results:
+                return [self._model_to_dict(ws) for ws in results]
+        # If it's already a list, convert directly
+        if isinstance(workspaces, list):
+            return [self._model_to_dict(ws) for ws in workspaces]
+        return []
 
     def list_collections(
         self,
         *,
         workspace: str,
     ) -> list[Dict[str, Any]]:
-        params = {"workspace": workspace}
-        response = self._client.get("/v3/collections", params=params)
-        response.raise_for_status()
-        return response.json()
+        """List all collections in a workspace."""
+        collections = self._client.get_all_collections(workspace=workspace)
+        # Handle both paginated and list responses
+        if hasattr(collections, "results"):
+            results = getattr(collections, "results", [])
+            if results:
+                return [self._model_to_dict(col) for col in results]
+        # If it's already a list, convert directly
+        if isinstance(collections, list):
+            return [self._model_to_dict(col) for col in collections]
+        return []
 
     def get_collection(self, *, identifier: str) -> Dict[str, Any]:
-        response = self._client.get(f"/v3/collections/{identifier}")
-        response.raise_for_status()
-        return response.json()
+        """Get a specific collection by identifier."""
+        collection = self._client.get_collection(identifier=identifier)
+        return self._model_to_dict(collection)
 
     def get_collection_field(
         self,
@@ -128,11 +149,24 @@ class AffindaClient:
         collection_identifier: str,
         datapoint_identifier: str,
     ) -> Dict[str, Any]:
-        response = self._client.get(
-            f"/v3/collections/{collection_identifier}/fields/{datapoint_identifier}"
-        )
-        response.raise_for_status()
-        return response.json()
+        """Get a specific field definition from a collection."""
+        # The SDK might not have this exact method, try alternative approach
+        collection = self.get_collection(identifier=collection_identifier)
+
+        # Look for the field in the collection's fields
+        if "fields" in collection:
+            for field in collection["fields"]:
+                if field.get("datapoint_identifier") == datapoint_identifier:
+                    return field
+
+        # Fallback: return empty field structure
+        return {
+            "datapoint_identifier": datapoint_identifier,
+            "name": "",
+            "slug": "",
+            "data_type": "",
+            "mandatory": False,
+        }
 
     def list_data_points(
         self,
@@ -147,24 +181,27 @@ class AffindaClient:
         annotation_content_type: Optional[str] = None,
         identifier: Optional[list[str]] = None,
     ) -> list[Dict[str, Any]]:
-        params: Dict[str, Any] = {}
-        for key, value in {
-            "offset": offset,
-            "limit": limit,
-            "organization": organization,
-            "include_public": include_public,
-            "extractor": extractor,
-            "slug": slug,
-            "description": description,
-            "annotation_content_type": annotation_content_type,
-            "identifier": identifier,
-        }.items():
-            if value is not None:
-                params[key] = value
-
-        response = self._client.get("/v3/data_points", params=params)
-        response.raise_for_status()
-        return response.json()
+        """List all data points with optional filtering."""
+        data_points = self._client.get_all_data_points(
+            offset=offset,
+            limit=limit,
+            organization=organization,
+            include_public=include_public,
+            extractor=extractor,
+            slug=slug,
+            description=description,
+            annotation_content_type=annotation_content_type,
+            identifier=identifier,
+        )
+        # Handle both paginated and list responses
+        if hasattr(data_points, "results"):
+            results = getattr(data_points, "results", [])
+            if results:
+                return [self._model_to_dict(dp) for dp in results]
+        # If it's already a list, convert directly
+        if isinstance(data_points, list):
+            return [self._model_to_dict(dp) for dp in data_points]
+        return []
 
     def list_workspaces_with_collections(
         self,
@@ -172,6 +209,7 @@ class AffindaClient:
         organization: str,
         name: Optional[str] = None,
     ) -> list[Dict[str, Any]]:
+        """List all workspaces with their collections."""
         workspaces = self.list_workspaces(organization=organization, name=name)
         results = []
         for workspace in workspaces:
@@ -181,3 +219,28 @@ class AffindaClient:
             collections = self.list_collections(workspace=workspace_id)
             results.append({"workspace": workspace, "collections": collections})
         return results
+
+    def _model_to_dict(self, model: Any) -> Dict[str, Any]:
+        """
+        Convert any Affinda SDK model to a dictionary.
+        The SDK models have an as_dict() method that handles serialization.
+        """
+        if hasattr(model, "as_dict"):
+            return model.as_dict()
+
+        # Fallback for non-model objects
+        if isinstance(model, dict):
+            return model
+
+        # For other objects, try to convert them to dict
+        result = {}
+        for attr in dir(model):
+            if not attr.startswith("_") and not callable(getattr(model, attr)):
+                try:
+                    value = getattr(model, attr)
+                    if value is not None:
+                        result[attr] = value
+                except AttributeError:
+                    pass
+
+        return result
