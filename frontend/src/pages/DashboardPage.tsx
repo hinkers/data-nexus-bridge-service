@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { workspacesApi, collectionsApi, documentsApi, syncHistoryApi, type LatestSyncs } from '../api/client';
 
 interface DashboardStats {
@@ -50,7 +51,10 @@ function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-4 gap-6 mb-12">
-        <div className="bg-white rounded-xl p-8 shadow-sm flex items-center gap-6 hover:-translate-y-0.5 hover:shadow-lg transition-all">
+        <Link
+          to="/dashboard/workspaces"
+          className="bg-white rounded-xl p-8 shadow-sm flex items-center gap-6 hover:-translate-y-0.5 hover:shadow-lg transition-all cursor-pointer"
+        >
           <div className="text-5xl w-16 h-16 flex items-center justify-center bg-gradient-to-br from-purple-500 to-blue-600 rounded-xl flex-shrink-0">
             📁
           </div>
@@ -60,9 +64,12 @@ function DashboardPage() {
               {isLoading ? '...' : stats.workspaces}
             </p>
           </div>
-        </div>
+        </Link>
 
-        <div className="bg-white rounded-xl p-8 shadow-sm flex items-center gap-6 hover:-translate-y-0.5 hover:shadow-lg transition-all">
+        <Link
+          to="/dashboard/collections"
+          className="bg-white rounded-xl p-8 shadow-sm flex items-center gap-6 hover:-translate-y-0.5 hover:shadow-lg transition-all cursor-pointer"
+        >
           <div className="text-5xl w-16 h-16 flex items-center justify-center bg-gradient-to-br from-purple-500 to-blue-600 rounded-xl flex-shrink-0">
             📑
           </div>
@@ -72,9 +79,12 @@ function DashboardPage() {
               {isLoading ? '...' : stats.collections}
             </p>
           </div>
-        </div>
+        </Link>
 
-        <div className="bg-white rounded-xl p-8 shadow-sm flex items-center gap-6 hover:-translate-y-0.5 hover:shadow-lg transition-all">
+        <Link
+          to="/dashboard/documents"
+          className="bg-white rounded-xl p-8 shadow-sm flex items-center gap-6 hover:-translate-y-0.5 hover:shadow-lg transition-all cursor-pointer"
+        >
           <div className="text-5xl w-16 h-16 flex items-center justify-center bg-gradient-to-br from-purple-500 to-blue-600 rounded-xl flex-shrink-0">
             📄
           </div>
@@ -84,7 +94,7 @@ function DashboardPage() {
               {isLoading ? '...' : stats.documents}
             </p>
           </div>
-        </div>
+        </Link>
 
         <div className="bg-white rounded-xl p-8 shadow-sm flex flex-col gap-2 hover:-translate-y-0.5 hover:shadow-lg transition-all">
           <div className="flex items-center gap-3">
