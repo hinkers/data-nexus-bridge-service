@@ -1,15 +1,26 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { documentsApi, collectionsApi, fieldDefinitionsApi } from '../api/client';
 import type { Document, Collection, FieldDefinition } from '../api/client';
 
 function DocumentsPage() {
+  const [searchParams] = useSearchParams();
+  const collectionIdFromUrl = searchParams.get('collection');
+
   const [documents, setDocuments] = useState<Document[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [fieldDefinitions, setFieldDefinitions] = useState<FieldDefinition[]>([]);
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [selectedCollection, setSelectedCollection] = useState<string>('');
+  const [selectedCollection, setSelectedCollection] = useState<string>(collectionIdFromUrl || '');
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  useEffect(() => {
+    // Update selected collection when URL parameter changes
+    if (collectionIdFromUrl) {
+      setSelectedCollection(collectionIdFromUrl);
+    }
+  }, [collectionIdFromUrl]);
 
   useEffect(() => {
     fetchData();
@@ -91,11 +102,27 @@ function DocumentsPage() {
       return dateB - dateA;
     });
 
+  const selectedCollectionName = collections.find(c => c.id === Number(selectedCollection))?.name;
+
   return (
     <div className="p-12 w-full">
       <div className="mb-10">
         <h1 className="text-4xl font-bold text-gray-900 mb-2">Documents</h1>
         <p className="text-gray-600">View and manage processed documents</p>
+        {selectedCollectionName && (
+          <div className="mt-4 inline-flex items-center gap-2 bg-purple-100 text-purple-700 px-4 py-2 rounded-lg">
+            <span className="text-sm font-medium">Filtered by collection: {selectedCollectionName}</span>
+            <button
+              onClick={() => {
+                setSelectedCollection('');
+                window.history.pushState({}, '', '/dashboard/documents');
+              }}
+              className="text-purple-900 hover:text-purple-950 font-bold"
+            >
+              ✕
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

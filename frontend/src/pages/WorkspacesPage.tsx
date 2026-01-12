@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { workspacesApi, type Workspace } from '../api/client';
-import './WorkspacesPage.css';
 
 function WorkspacesPage() {
   const queryClient = useQueryClient();
@@ -24,46 +24,68 @@ function WorkspacesPage() {
     },
   });
 
-  if (isLoading) return <div className="loading">Loading workspaces...</div>;
-  if (error) return <div className="error">Error loading workspaces: {String(error)}</div>;
+  if (isLoading) return (
+    <div className="p-12 w-full">
+      <div className="text-center text-gray-500">Loading workspaces...</div>
+    </div>
+  );
+
+  if (error) return (
+    <div className="p-12 w-full">
+      <div className="text-center text-red-600">Error loading workspaces: {String(error)}</div>
+    </div>
+  );
 
   return (
-    <div className="page">
-      <div className="page-header">
-        <h2>Workspaces</h2>
+    <div className="p-12 w-full">
+      <div className="mb-10 flex items-center justify-between">
+        <div>
+          <h1 className="text-4xl font-bold text-gray-900 mb-2">Workspaces</h1>
+          <p className="text-gray-600">View and manage Affinda workspaces</p>
+        </div>
         <button
           onClick={() => syncMutation.mutate()}
           disabled={syncMutation.isPending}
-          className="sync-button"
+          className="bg-gradient-to-r from-purple-600 to-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:from-purple-700 hover:to-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {syncMutation.isPending ? 'Syncing...' : 'Sync from Affinda'}
         </button>
       </div>
 
       {data?.results && data.results.length > 0 ? (
-        <div className="card-grid">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {data.results.map((workspace: Workspace) => (
-            <div key={workspace.id} className="card">
-              <h3>{workspace.name || workspace.identifier}</h3>
-              <div className="card-details">
-                <p>
-                  <strong>Identifier:</strong> {workspace.identifier}
-                </p>
-                <p>
-                  <strong>Organization:</strong> {workspace.organization_identifier}
-                </p>
+            <div key={workspace.id} className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+              <h3 className="text-xl font-semibold text-gray-900 mb-4">
+                {workspace.name || workspace.identifier}
+              </h3>
+              <div className="space-y-2 mb-4">
+                <div className="text-sm">
+                  <span className="font-medium text-gray-600">Identifier:</span>
+                  <p className="text-gray-900 font-mono text-xs mt-1">{workspace.identifier}</p>
+                </div>
+                <div className="text-sm">
+                  <span className="font-medium text-gray-600">Organization:</span>
+                  <p className="text-gray-900">{workspace.organization_identifier}</p>
+                </div>
               </div>
+              <Link
+                to={`/dashboard/collections?workspace=${workspace.id}`}
+                className="block text-center bg-gradient-to-r from-purple-600 to-blue-600 text-white py-2 px-4 rounded-lg font-semibold hover:from-purple-700 hover:to-blue-700 transition"
+              >
+                View Collections
+              </Link>
             </div>
           ))}
         </div>
       ) : (
-        <div className="empty-state">
-          <p>No workspaces found. Click "Sync from Affinda" to import workspaces.</p>
+        <div className="bg-white rounded-xl p-12 shadow-sm text-center">
+          <p className="text-gray-500">No workspaces found. Click "Sync from Affinda" to import workspaces.</p>
         </div>
       )}
 
       {data && data.count > 0 && (
-        <div className="pagination-info">
+        <div className="mt-6 text-center text-sm text-gray-500">
           Showing {data.results.length} of {data.count} workspaces
         </div>
       )}

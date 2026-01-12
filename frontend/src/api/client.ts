@@ -120,9 +120,9 @@ export const workspacesApi = {
 };
 
 export const collectionsApi = {
-  list: (workspace?: string) =>
+  list: (params?: { workspace?: string }) =>
     apiClient.get<PaginatedResponse<Collection>>('/api/collections/', {
-      params: workspace ? { workspace } : undefined,
+      params,
     }),
   get: (identifier: string) => apiClient.get<Collection>(`/api/collections/${identifier}/`),
 };
