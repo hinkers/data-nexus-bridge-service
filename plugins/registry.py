@@ -167,11 +167,41 @@ class PluginRegistry:
         """Get a post-processor class by full slug."""
         return self._postprocessors.get(full_slug)
 
-    def list_plugins(self) -> list[dict]:
-        """List all registered plugins with their metadata."""
+    def list_plugins(self, check_dependencies: bool = True) -> list[dict]:
+        """
+        List all registered plugins with their metadata.
+
+        Args:
+            check_dependencies: Whether to check dependency status (can be slow)
+        """
+        from plugins.dependencies import check_dependencies as check_deps, get_missing_dependencies
+
         result = []
         for slug, plugin_class in self._plugins.items():
             meta = plugin_class.get_meta()
+
+            # Check dependencies if requested
+            dependencies = getattr(meta, 'dependencies', []) or []
+            if check_dependencies and dependencies:
+                dep_statuses = check_deps(dependencies)
+                missing = [s.package for s in dep_statuses if not s.satisfied]
+                deps_satisfied = len(missing) == 0
+                deps_status = [
+                    {
+                        'package': s.package,
+                        'name': s.name,
+                        'required_version': s.required_version,
+                        'installed': s.installed,
+                        'installed_version': s.installed_version,
+                        'satisfied': s.satisfied,
+                    }
+                    for s in dep_statuses
+                ]
+            else:
+                deps_status = []
+                missing = []
+                deps_satisfied = True
+
             result.append({
                 'slug': meta.slug,
                 'name': meta.name,
@@ -179,6 +209,10 @@ class PluginRegistry:
                 'author': meta.author,
                 'description': meta.description,
                 'config_schema': meta.config_schema,
+                'dependencies': dependencies,
+                'dependencies_status': deps_status,
+                'missing_dependencies': missing,
+                'dependencies_satisfied': deps_satisfied,
                 'importers': [
                     {
                         'slug': f"{slug}.{imp.get_meta().slug}",

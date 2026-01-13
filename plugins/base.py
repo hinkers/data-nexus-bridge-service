@@ -19,6 +19,7 @@ class PluginMeta:
     author: str = ""
     description: str = ""
     config_schema: dict = field(default_factory=dict)
+    dependencies: list[str] = field(default_factory=list)  # e.g. ["httpx>=0.24", "boto3"]
 
 
 @dataclass

@@ -217,6 +217,15 @@ export interface PluginInstance {
   updated_at: string;
 }
 
+export interface DependencyStatus {
+  package: string;
+  name: string;
+  required_version: string | null;
+  installed: boolean;
+  installed_version: string | null;
+  satisfied: boolean;
+}
+
 export interface AvailablePlugin {
   slug: string;
   name: string;
@@ -224,6 +233,10 @@ export interface AvailablePlugin {
   author: string;
   description: string;
   config_schema: Record<string, any>;
+  dependencies: string[];
+  dependencies_status: DependencyStatus[];
+  missing_dependencies: string[];
+  dependencies_satisfied: boolean;
   importers: Array<{
     slug: string;
     name: string;
@@ -271,6 +284,16 @@ export const pluginsApi = {
   toggle: (slug: string) => apiClient.post<{ enabled: boolean }>(`/api/plugins/${slug}/toggle/`),
   updateConfig: (slug: string, config: Record<string, any>) =>
     apiClient.patch<Plugin>(`/api/plugins/${slug}/`, { config }),
+  installDependencies: (slug: string, packages?: string[]) =>
+    apiClient.post<{ success: boolean; message: string; installed: string[]; failed: string[] }>(
+      '/api/plugins/install-dependencies/',
+      { slug, packages }
+    ),
+  checkDependencies: (slug: string) =>
+    apiClient.post<{ dependencies: DependencyStatus[]; missing: string[]; satisfied: boolean }>(
+      '/api/plugins/check-dependencies/',
+      { slug }
+    ),
 };
 
 export const pluginComponentsApi = {

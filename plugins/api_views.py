@@ -5,11 +5,13 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from plugins.dependencies import check_dependencies, install_dependencies
 from plugins.executor import execute_importer
 from plugins.models import Plugin, PluginComponent, PluginExecutionLog, PluginInstance
 from plugins.registry import plugin_registry
 from plugins.serializers import (
     AvailablePluginSerializer,
+    DependencyStatusSerializer,
     ImportResultSerializer,
     PluginComponentSerializer,
     PluginExecutionLogSerializer,
@@ -157,6 +159,123 @@ class PluginViewSet(viewsets.ModelViewSet):
         plugin.delete()
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=False, methods=['post'], url_path='install-dependencies')
+    def install_dependencies(self, request):
+        """
+        Install dependencies for a plugin.
+
+        Request body:
+        {
+            "slug": "plugin-slug",  // Plugin to install dependencies for
+            "packages": ["httpx", "boto3"]  // Optional: specific packages to install
+        }
+        """
+        slug = request.data.get('slug')
+        packages = request.data.get('packages')
+
+        if not slug:
+            return Response(
+                {'detail': 'Plugin slug is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Get plugin from registry
+        plugin_class = plugin_registry.get_plugin(slug)
+        if not plugin_class:
+            return Response(
+                {'detail': f'Plugin {slug} not found in registry'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        meta = plugin_class.get_meta()
+        dependencies = getattr(meta, 'dependencies', []) or []
+
+        if not dependencies:
+            return Response({
+                'success': True,
+                'message': 'Plugin has no dependencies',
+                'installed': [],
+                'failed': [],
+            })
+
+        # If specific packages requested, filter to only those
+        if packages:
+            # Match packages by name (ignoring version specifiers)
+            packages_to_install = []
+            for dep in dependencies:
+                dep_name = dep.split('>=')[0].split('<=')[0].split('==')[0].split('[')[0].strip()
+                if dep_name in packages:
+                    packages_to_install.append(dep)
+        else:
+            # Install all missing dependencies
+            dep_statuses = check_dependencies(dependencies)
+            packages_to_install = [s.package for s in dep_statuses if not s.satisfied]
+
+        if not packages_to_install:
+            return Response({
+                'success': True,
+                'message': 'All dependencies are already satisfied',
+                'installed': [],
+                'failed': [],
+            })
+
+        # Install the dependencies
+        result = install_dependencies(packages_to_install)
+
+        return Response({
+            'success': result['success'],
+            'message': result['output'],
+            'installed': result['installed'],
+            'failed': result['failed'],
+        })
+
+    @action(detail=False, methods=['post'], url_path='check-dependencies')
+    def check_plugin_dependencies(self, request):
+        """
+        Check dependencies for a plugin without installing.
+
+        Request body:
+        {
+            "slug": "plugin-slug"
+        }
+        """
+        slug = request.data.get('slug')
+
+        if not slug:
+            return Response(
+                {'detail': 'Plugin slug is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Get plugin from registry
+        plugin_class = plugin_registry.get_plugin(slug)
+        if not plugin_class:
+            return Response(
+                {'detail': f'Plugin {slug} not found in registry'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        meta = plugin_class.get_meta()
+        dependencies = getattr(meta, 'dependencies', []) or []
+
+        if not dependencies:
+            return Response({
+                'dependencies': [],
+                'missing': [],
+                'satisfied': True,
+            })
+
+        dep_statuses = check_dependencies(dependencies)
+        missing = [s.package for s in dep_statuses if not s.satisfied]
+
+        serializer = DependencyStatusSerializer(dep_statuses, many=True)
+
+        return Response({
+            'dependencies': serializer.data,
+            'missing': missing,
+            'satisfied': len(missing) == 0,
+        })
 
 
 class PluginComponentViewSet(viewsets.ReadOnlyModelViewSet):

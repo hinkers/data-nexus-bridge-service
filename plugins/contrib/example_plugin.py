@@ -18,17 +18,9 @@ import re
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from plugins.base import (
-    BaseImporter,
-    BasePlugin,
-    BasePostProcessor,
-    BasePreProcessor,
-    ComponentMeta,
-    ImportResult,
-    PluginMeta,
-    PostProcessResult,
-    PreProcessResult,
-)
+from plugins.base import (BaseImporter, BasePlugin, BasePostProcessor,
+                          BasePreProcessor, ComponentMeta, ImportResult,
+                          PluginMeta, PostProcessResult, PreProcessResult)
 
 if TYPE_CHECKING:
     from affinda_bridge.models import Document
@@ -446,6 +438,9 @@ class ExamplePlugin(BasePlugin):
             version="1.0.0",
             author="Data Nexus Bridge",
             description="Demonstrates plugin system with sample importers, pre-processors, and post-processors",
+            dependencies=[
+                "httpx>=0.24",  # Used by WebhookNotifier for HTTP requests
+            ],
             config_schema={
                 "type": "object",
                 "properties": {

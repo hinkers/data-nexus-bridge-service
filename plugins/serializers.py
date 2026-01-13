@@ -144,6 +144,17 @@ class PluginExecutionLogSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class DependencyStatusSerializer(serializers.Serializer):
+    """Serializer for dependency status."""
+
+    package = serializers.CharField()
+    name = serializers.CharField()
+    required_version = serializers.CharField(allow_null=True)
+    installed = serializers.BooleanField()
+    installed_version = serializers.CharField(allow_null=True)
+    satisfied = serializers.BooleanField()
+
+
 class AvailablePluginSerializer(serializers.Serializer):
     """Serializer for available plugins from the registry."""
 
@@ -153,6 +164,10 @@ class AvailablePluginSerializer(serializers.Serializer):
     author = serializers.CharField()
     description = serializers.CharField()
     config_schema = serializers.JSONField()
+    dependencies = serializers.ListField(child=serializers.CharField(), default=list)
+    dependencies_status = DependencyStatusSerializer(many=True, default=list)
+    missing_dependencies = serializers.ListField(child=serializers.CharField(), default=list)
+    dependencies_satisfied = serializers.BooleanField(default=True)
     importers = serializers.ListField()
     preprocessors = serializers.ListField()
     postprocessors = serializers.ListField()
