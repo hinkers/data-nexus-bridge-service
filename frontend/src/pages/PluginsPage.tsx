@@ -20,6 +20,7 @@ function PluginsPage() {
   const [showInstallModal, setShowInstallModal] = useState(false);
   const [pluginToInstall, setPluginToInstall] = useState<AvailablePlugin | null>(null);
   const [showEditPluginConfig, setShowEditPluginConfig] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const queryClient = useQueryClient();
 
   // Queries
@@ -132,6 +133,51 @@ function PluginsPage() {
     return installedPlugins?.some((p) => p.slug === slug) ?? false;
   };
 
+  // Filter functions for search
+  const filterInstalledPlugins = (plugins: Plugin[] | undefined) => {
+    if (!plugins || !searchQuery.trim()) return plugins;
+    const query = searchQuery.toLowerCase();
+    return plugins.filter(
+      (p) =>
+        p.name.toLowerCase().includes(query) ||
+        p.slug.toLowerCase().includes(query) ||
+        p.description?.toLowerCase().includes(query) ||
+        p.author?.toLowerCase().includes(query)
+    );
+  };
+
+  const filterAvailablePlugins = (plugins: AvailablePlugin[] | undefined) => {
+    if (!plugins || !searchQuery.trim()) return plugins;
+    const query = searchQuery.toLowerCase();
+    return plugins.filter(
+      (p) =>
+        p.name.toLowerCase().includes(query) ||
+        p.slug.toLowerCase().includes(query) ||
+        p.description?.toLowerCase().includes(query) ||
+        p.author?.toLowerCase().includes(query) ||
+        p.importers.some((i) => i.name.toLowerCase().includes(query)) ||
+        p.preprocessors.some((i) => i.name.toLowerCase().includes(query)) ||
+        p.postprocessors.some((i) => i.name.toLowerCase().includes(query))
+    );
+  };
+
+  const filterInstances = (instances: PluginInstance[] | undefined) => {
+    if (!instances || !searchQuery.trim()) return instances;
+    const query = searchQuery.toLowerCase();
+    return instances.filter(
+      (i) =>
+        i.name.toLowerCase().includes(query) ||
+        i.plugin_name.toLowerCase().includes(query) ||
+        i.component_name.toLowerCase().includes(query) ||
+        i.component_type.toLowerCase().includes(query)
+    );
+  };
+
+  // Get filtered data
+  const filteredInstalledPlugins = filterInstalledPlugins(installedPlugins);
+  const filteredAvailablePlugins = filterAvailablePlugins(availablePlugins);
+  const filteredInstances = filterInstances(instances);
+
   // Get component type badge color
   const getComponentTypeColor = (type: string) => {
     switch (type) {
@@ -166,38 +212,74 @@ function PluginsPage() {
         <p className="text-gray-600">Manage importers, pre-processors, and post-processors</p>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 mb-6 bg-gray-100 p-1 rounded-lg w-fit">
-        <button
-          onClick={() => setActiveTab('installed')}
-          className={`px-4 py-2 rounded-md font-medium transition ${
-            activeTab === 'installed'
-              ? 'bg-white text-purple-600 shadow-sm'
-              : 'text-gray-600 hover:text-gray-900'
-          }`}
-        >
-          Installed ({installedPlugins?.length ?? 0})
-        </button>
-        <button
-          onClick={() => setActiveTab('available')}
-          className={`px-4 py-2 rounded-md font-medium transition ${
-            activeTab === 'available'
-              ? 'bg-white text-purple-600 shadow-sm'
-              : 'text-gray-600 hover:text-gray-900'
-          }`}
-        >
-          Available ({availablePlugins?.length ?? 0})
-        </button>
-        <button
-          onClick={() => setActiveTab('instances')}
-          className={`px-4 py-2 rounded-md font-medium transition ${
-            activeTab === 'instances'
-              ? 'bg-white text-purple-600 shadow-sm'
-              : 'text-gray-600 hover:text-gray-900'
-          }`}
-        >
-          Instances ({instances?.length ?? 0})
-        </button>
+      {/* Tabs and Search */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex gap-1 bg-gray-100 p-1 rounded-lg w-fit">
+          <button
+            onClick={() => { setActiveTab('installed'); setSearchQuery(''); }}
+            className={`px-4 py-2 rounded-md font-medium transition ${
+              activeTab === 'installed'
+                ? 'bg-white text-purple-600 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Installed ({installedPlugins?.length ?? 0})
+          </button>
+          <button
+            onClick={() => { setActiveTab('available'); setSearchQuery(''); }}
+            className={`px-4 py-2 rounded-md font-medium transition ${
+              activeTab === 'available'
+                ? 'bg-white text-purple-600 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Available ({availablePlugins?.length ?? 0})
+          </button>
+          <button
+            onClick={() => { setActiveTab('instances'); setSearchQuery(''); }}
+            className={`px-4 py-2 rounded-md font-medium transition ${
+              activeTab === 'instances'
+                ? 'bg-white text-purple-600 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Instances ({instances?.length ?? 0})
+          </button>
+        </div>
+
+        {/* Search Input */}
+        <div className="relative">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={`Search ${activeTab}...`}
+            className="w-64 pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+          />
+          <svg
+            className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+            />
+          </svg>
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Installed Plugins Tab */}
@@ -217,9 +299,13 @@ function PluginsPage() {
                   Browse available plugins
                 </button>
               </div>
+            ) : filteredInstalledPlugins?.length === 0 ? (
+              <div className="bg-white rounded-xl p-8 text-center">
+                <p className="text-gray-500">No plugins match "{searchQuery}"</p>
+              </div>
             ) : (
               <div className="space-y-4">
-                {installedPlugins?.map((plugin) => (
+                {filteredInstalledPlugins?.map((plugin) => (
                   <div
                     key={plugin.slug}
                     onClick={() => setSelectedPlugin(plugin)}
@@ -398,8 +484,12 @@ function PluginsPage() {
             <div className="bg-white rounded-xl p-8 text-center">
               <p className="text-gray-500">No plugins available</p>
             </div>
+          ) : filteredAvailablePlugins?.length === 0 ? (
+            <div className="bg-white rounded-xl p-8 text-center">
+              <p className="text-gray-500">No plugins match "{searchQuery}"</p>
+            </div>
           ) : (
-            availablePlugins?.map((plugin: AvailablePlugin) => (
+            filteredAvailablePlugins?.map((plugin: AvailablePlugin) => (
               <div key={plugin.slug} className="bg-white rounded-xl p-6 shadow-sm">
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
@@ -496,8 +586,12 @@ function PluginsPage() {
                 Create an instance from installed plugins
               </button>
             </div>
+          ) : filteredInstances?.length === 0 ? (
+            <div className="bg-white rounded-xl p-8 text-center">
+              <p className="text-gray-500">No instances match "{searchQuery}"</p>
+            </div>
           ) : (
-            instances?.map((instance) => (
+            filteredInstances?.map((instance) => (
               <div key={instance.id} className="bg-white rounded-xl p-6 shadow-sm">
                 <div className="flex items-start justify-between">
                   <div className="flex-1">

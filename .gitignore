@@ -99,3 +99,6 @@ frontend/yarn-debug.log*
 frontend/yarn-error.log*
 frontend/.vite/
 db.sqlite3
+
+# Claude Code
+.claude/
