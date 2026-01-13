@@ -17,6 +17,9 @@ function PluginsPage() {
   const [selectedPlugin, setSelectedPlugin] = useState<Plugin | null>(null);
   const [showCreateInstance, setShowCreateInstance] = useState(false);
   const [selectedComponent, setSelectedComponent] = useState<PluginComponent | null>(null);
+  const [showInstallModal, setShowInstallModal] = useState(false);
+  const [pluginToInstall, setPluginToInstall] = useState<AvailablePlugin | null>(null);
+  const [showEditPluginConfig, setShowEditPluginConfig] = useState(false);
   const queryClient = useQueryClient();
 
   // Queries
@@ -54,10 +57,26 @@ function PluginsPage() {
 
   // Mutations
   const installMutation = useMutation({
-    mutationFn: (slug: string) => pluginsApi.install(slug),
+    mutationFn: ({ slug, config }: { slug: string; config?: Record<string, any> }) =>
+      pluginsApi.install(slug, config),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['plugins'] });
       queryClient.invalidateQueries({ queryKey: ['plugin-components'] });
+      setShowInstallModal(false);
+      setPluginToInstall(null);
+    },
+  });
+
+  const updatePluginConfigMutation = useMutation({
+    mutationFn: ({ slug, config }: { slug: string; config: Record<string, any> }) =>
+      pluginsApi.updateConfig(slug, config),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ['plugins'] });
+      setShowEditPluginConfig(false);
+      // Update the selected plugin with new data
+      if (selectedPlugin) {
+        setSelectedPlugin(response.data);
+      }
     },
   });
 
@@ -280,6 +299,44 @@ function PluginsPage() {
                   </div>
                 </div>
 
+                {/* Plugin Configuration */}
+                {Object.keys(selectedPlugin.config_schema?.properties || {}).length > 0 && (
+                  <div className="mb-6">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-sm font-semibold text-gray-700">Plugin Configuration</h4>
+                      <button
+                        onClick={() => setShowEditPluginConfig(true)}
+                        className="text-xs text-purple-600 hover:text-purple-700 font-medium"
+                      >
+                        Edit
+                      </button>
+                    </div>
+                    <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+                      {Object.entries(selectedPlugin.config_schema?.properties || {}).map(
+                        ([key, schema]) => {
+                          const value = selectedPlugin.config?.[key];
+                          const schemaObj = schema as Record<string, any>;
+                          const label = schemaObj.title || key.replace(/_/g, ' ');
+                          return (
+                            <div key={key} className="flex justify-between text-sm">
+                              <span className="text-gray-500 capitalize">{label}:</span>
+                              <span className="font-medium text-gray-900">
+                                {value !== undefined
+                                  ? typeof value === 'boolean'
+                                    ? value ? 'Yes' : 'No'
+                                    : String(value)
+                                  : schemaObj.default !== undefined
+                                    ? `${schemaObj.default} (default)`
+                                    : '-'}
+                              </span>
+                            </div>
+                          );
+                        }
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 <h4 className="text-sm font-semibold text-gray-700 mb-3">Components</h4>
                 <div className="space-y-2 mb-6">
                   {components
@@ -401,7 +458,15 @@ function PluginsPage() {
                       </button>
                     ) : (
                       <button
-                        onClick={() => installMutation.mutate(plugin.slug)}
+                        onClick={() => {
+                          // If plugin has config schema, show modal; otherwise install directly
+                          if (Object.keys(plugin.config_schema?.properties || {}).length > 0) {
+                            setPluginToInstall(plugin);
+                            setShowInstallModal(true);
+                          } else {
+                            installMutation.mutate({ slug: plugin.slug });
+                          }
+                        }}
                         disabled={installMutation.isPending}
                         className="px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg font-medium hover:from-purple-700 hover:to-blue-700 transition disabled:opacity-50"
                       >
@@ -522,6 +587,147 @@ function PluginsPage() {
           isSubmitting={createInstanceMutation.isPending}
         />
       )}
+
+      {/* Install Plugin Modal */}
+      {showInstallModal && pluginToInstall && (
+        <InstallPluginModal
+          plugin={pluginToInstall}
+          onClose={() => {
+            setShowInstallModal(false);
+            setPluginToInstall(null);
+          }}
+          onSubmit={(config) => installMutation.mutate({ slug: pluginToInstall.slug, config })}
+          isSubmitting={installMutation.isPending}
+        />
+      )}
+
+      {/* Edit Plugin Config Modal */}
+      {showEditPluginConfig && selectedPlugin && (
+        <EditPluginConfigModal
+          plugin={selectedPlugin}
+          onClose={() => setShowEditPluginConfig(false)}
+          onSubmit={(config) =>
+            updatePluginConfigMutation.mutate({ slug: selectedPlugin.slug, config })
+          }
+          isSubmitting={updatePluginConfigMutation.isPending}
+        />
+      )}
+    </div>
+  );
+}
+
+// Helper to extract default values from JSON Schema
+function getDefaultsFromSchema(schema: Record<string, any>): Record<string, any> {
+  const defaults: Record<string, any> = {};
+  const properties = schema.properties || {};
+
+  for (const [key, prop] of Object.entries(properties)) {
+    const propSchema = prop as Record<string, any>;
+    if (propSchema.default !== undefined) {
+      defaults[key] = propSchema.default;
+    } else if (propSchema.type === 'boolean') {
+      defaults[key] = false;
+    } else if (propSchema.type === 'number' || propSchema.type === 'integer') {
+      defaults[key] = 0;
+    } else if (propSchema.type === 'array') {
+      defaults[key] = [];
+    } else if (propSchema.type === 'object') {
+      defaults[key] = {};
+    }
+  }
+
+  return defaults;
+}
+
+// Schema Field Component
+function SchemaField({
+  name,
+  schema,
+  value,
+  onChange,
+  required,
+}: {
+  name: string;
+  schema: Record<string, any>;
+  value: any;
+  onChange: (value: any) => void;
+  required: boolean;
+}) {
+  const type = schema.type || 'string';
+  const description = schema.description || '';
+  const label = schema.title || name.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+
+  const inputClasses =
+    'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent';
+
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">
+        {label}
+        {required && <span className="text-red-500 ml-1">*</span>}
+      </label>
+
+      {type === 'boolean' ? (
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={value || false}
+            onChange={(e) => onChange(e.target.checked)}
+            className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+          />
+          <span className="text-sm text-gray-600">{description || 'Enable'}</span>
+        </label>
+      ) : type === 'number' || type === 'integer' ? (
+        <input
+          type="number"
+          value={value ?? ''}
+          onChange={(e) => onChange(e.target.value ? Number(e.target.value) : undefined)}
+          className={inputClasses}
+          step={type === 'integer' ? 1 : 'any'}
+          required={required}
+        />
+      ) : schema.enum ? (
+        <select
+          value={value ?? ''}
+          onChange={(e) => onChange(e.target.value)}
+          className={inputClasses}
+          required={required}
+        >
+          <option value="">Select...</option>
+          {schema.enum.map((opt: string) => (
+            <option key={opt} value={opt}>
+              {opt}
+            </option>
+          ))}
+        </select>
+      ) : type === 'array' && schema.items?.type === 'string' ? (
+        <input
+          type="text"
+          value={Array.isArray(value) ? value.join(', ') : ''}
+          onChange={(e) =>
+            onChange(
+              e.target.value
+                ? e.target.value.split(',').map((s) => s.trim())
+                : []
+            )
+          }
+          className={inputClasses}
+          placeholder="Comma-separated values"
+        />
+      ) : (
+        <input
+          type="text"
+          value={value ?? ''}
+          onChange={(e) => onChange(e.target.value || undefined)}
+          className={inputClasses}
+          placeholder={schema.default ? `Default: ${schema.default}` : ''}
+          required={required}
+        />
+      )}
+
+      {description && type !== 'boolean' && (
+        <p className="text-xs text-gray-500 mt-1">{description}</p>
+      )}
     </div>
   );
 }
@@ -538,9 +744,15 @@ function CreateInstanceModal({
   onSubmit: (data: { component: number; name: string; config?: Record<string, any>; event_triggers?: string[] }) => void;
   isSubmitting: boolean;
 }) {
+  const schema = component.config_schema || {};
+  const properties = schema.properties || {};
+  const requiredFields: string[] = schema.required || [];
+  const hasSchema = Object.keys(properties).length > 0;
+
   const [name, setName] = useState(`${component.name} Instance`);
-  const [config, setConfig] = useState<Record<string, any>>({});
+  const [config, setConfig] = useState<Record<string, any>>(() => getDefaultsFromSchema(schema));
   const [eventTriggers, setEventTriggers] = useState<string[]>([]);
+  const [showRawJson, setShowRawJson] = useState(false);
 
   const availableEvents = [
     'document_uploaded',
@@ -549,6 +761,18 @@ function CreateInstanceModal({
     'document_archived',
     'document_updated',
   ];
+
+  const updateConfigField = (field: string, value: any) => {
+    setConfig((prev) => {
+      const next = { ...prev };
+      if (value === undefined || value === '') {
+        delete next[field];
+      } else {
+        next[field] = value;
+      }
+      return next;
+    });
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -607,27 +831,48 @@ function CreateInstanceModal({
               </div>
             )}
 
-            {/* Config Schema Preview */}
-            {Object.keys(component.config_schema).length > 0 && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Configuration (JSON)
-                </label>
-                <textarea
-                  value={JSON.stringify(config, null, 2)}
-                  onChange={(e) => {
-                    try {
-                      setConfig(JSON.parse(e.target.value));
-                    } catch {
-                      // Invalid JSON, ignore
-                    }
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono text-sm h-32 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                  placeholder="{}"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Configure this instance based on the component&apos;s schema
-                </p>
+            {/* Configuration Fields */}
+            {hasSchema && (
+              <div className="border-t pt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <label className="block text-sm font-semibold text-gray-700">Configuration</label>
+                  <button
+                    type="button"
+                    onClick={() => setShowRawJson(!showRawJson)}
+                    className="text-xs text-purple-600 hover:text-purple-700"
+                  >
+                    {showRawJson ? 'Show Form' : 'Edit as JSON'}
+                  </button>
+                </div>
+
+                {showRawJson ? (
+                  <div>
+                    <textarea
+                      value={JSON.stringify(config, null, 2)}
+                      onChange={(e) => {
+                        try {
+                          setConfig(JSON.parse(e.target.value));
+                        } catch {
+                          // Invalid JSON, ignore
+                        }
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono text-sm h-48 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {Object.entries(properties).map(([fieldName, fieldSchema]) => (
+                      <SchemaField
+                        key={fieldName}
+                        name={fieldName}
+                        schema={fieldSchema as Record<string, any>}
+                        value={config[fieldName]}
+                        onChange={(value) => updateConfigField(fieldName, value)}
+                        required={requiredFields.includes(fieldName)}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -646,6 +891,224 @@ function CreateInstanceModal({
               className="flex-1 px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg font-medium hover:from-purple-700 hover:to-blue-700 transition disabled:opacity-50"
             >
               {isSubmitting ? 'Creating...' : 'Create Instance'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// Install Plugin Modal Component
+function InstallPluginModal({
+  plugin,
+  onClose,
+  onSubmit,
+  isSubmitting,
+}: {
+  plugin: AvailablePlugin;
+  onClose: () => void;
+  onSubmit: (config: Record<string, any>) => void;
+  isSubmitting: boolean;
+}) {
+  const schema = plugin.config_schema || {};
+  const properties = schema.properties || {};
+  const requiredFields: string[] = schema.required || [];
+
+  const [config, setConfig] = useState<Record<string, any>>(() => getDefaultsFromSchema(schema));
+  const [showRawJson, setShowRawJson] = useState(false);
+
+  const updateConfigField = (field: string, value: any) => {
+    setConfig((prev) => {
+      const next = { ...prev };
+      if (value === undefined || value === '') {
+        delete next[field];
+      } else {
+        next[field] = value;
+      }
+      return next;
+    });
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSubmit(config);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <h2 className="text-xl font-semibold text-gray-900 mb-2">Install {plugin.name}</h2>
+        <p className="text-sm text-gray-500 mb-6">
+          Configure plugin settings before installation. These can be changed later.
+        </p>
+
+        <form onSubmit={handleSubmit}>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between mb-3">
+              <label className="block text-sm font-semibold text-gray-700">Plugin Configuration</label>
+              <button
+                type="button"
+                onClick={() => setShowRawJson(!showRawJson)}
+                className="text-xs text-purple-600 hover:text-purple-700"
+              >
+                {showRawJson ? 'Show Form' : 'Edit as JSON'}
+              </button>
+            </div>
+
+            {showRawJson ? (
+              <textarea
+                value={JSON.stringify(config, null, 2)}
+                onChange={(e) => {
+                  try {
+                    setConfig(JSON.parse(e.target.value));
+                  } catch {
+                    // Invalid JSON, ignore
+                  }
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono text-sm h-48 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              />
+            ) : (
+              <div className="space-y-4">
+                {Object.entries(properties).map(([fieldName, fieldSchema]) => (
+                  <SchemaField
+                    key={fieldName}
+                    name={fieldName}
+                    schema={fieldSchema as Record<string, any>}
+                    value={config[fieldName]}
+                    onChange={(value) => updateConfigField(fieldName, value)}
+                    required={requiredFields.includes(fieldName)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-3 mt-6">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="flex-1 px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg font-medium hover:from-purple-700 hover:to-blue-700 transition disabled:opacity-50"
+            >
+              {isSubmitting ? 'Installing...' : 'Install Plugin'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// Edit Plugin Config Modal Component
+function EditPluginConfigModal({
+  plugin,
+  onClose,
+  onSubmit,
+  isSubmitting,
+}: {
+  plugin: Plugin;
+  onClose: () => void;
+  onSubmit: (config: Record<string, any>) => void;
+  isSubmitting: boolean;
+}) {
+  const schema = plugin.config_schema || {};
+  const properties = schema.properties || {};
+  const requiredFields: string[] = schema.required || [];
+
+  // Initialize with current plugin config, falling back to defaults
+  const [config, setConfig] = useState<Record<string, any>>(() => ({
+    ...getDefaultsFromSchema(schema),
+    ...plugin.config,
+  }));
+  const [showRawJson, setShowRawJson] = useState(false);
+
+  const updateConfigField = (field: string, value: any) => {
+    setConfig((prev) => {
+      const next = { ...prev };
+      if (value === undefined || value === '') {
+        delete next[field];
+      } else {
+        next[field] = value;
+      }
+      return next;
+    });
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSubmit(config);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <h2 className="text-xl font-semibold text-gray-900 mb-2">Edit {plugin.name} Configuration</h2>
+        <p className="text-sm text-gray-500 mb-6">
+          Update plugin-level settings. These apply to all instances of this plugin.
+        </p>
+
+        <form onSubmit={handleSubmit}>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between mb-3">
+              <label className="block text-sm font-semibold text-gray-700">Configuration</label>
+              <button
+                type="button"
+                onClick={() => setShowRawJson(!showRawJson)}
+                className="text-xs text-purple-600 hover:text-purple-700"
+              >
+                {showRawJson ? 'Show Form' : 'Edit as JSON'}
+              </button>
+            </div>
+
+            {showRawJson ? (
+              <textarea
+                value={JSON.stringify(config, null, 2)}
+                onChange={(e) => {
+                  try {
+                    setConfig(JSON.parse(e.target.value));
+                  } catch {
+                    // Invalid JSON, ignore
+                  }
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono text-sm h-48 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              />
+            ) : (
+              <div className="space-y-4">
+                {Object.entries(properties).map(([fieldName, fieldSchema]) => (
+                  <SchemaField
+                    key={fieldName}
+                    name={fieldName}
+                    schema={fieldSchema as Record<string, any>}
+                    value={config[fieldName]}
+                    onChange={(value) => updateConfigField(fieldName, value)}
+                    required={requiredFields.includes(fieldName)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-3 mt-6">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="flex-1 px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg font-medium hover:from-purple-700 hover:to-blue-700 transition disabled:opacity-50"
+            >
+              {isSubmitting ? 'Saving...' : 'Save Configuration'}
             </button>
           </div>
         </form>

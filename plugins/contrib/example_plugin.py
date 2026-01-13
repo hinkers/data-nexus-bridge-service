@@ -433,6 +433,9 @@ class WebhookNotifier(BasePostProcessor):
 class ExamplePlugin(BasePlugin):
     """
     Example plugin demonstrating all component types.
+
+    Plugin-level config is shared across all component instances.
+    Use it for things like API keys, base URLs, or shared settings.
     """
 
     @classmethod
@@ -446,9 +449,21 @@ class ExamplePlugin(BasePlugin):
             config_schema={
                 "type": "object",
                 "properties": {
+                    "api_key": {
+                        "type": "string",
+                        "title": "API Key",
+                        "description": "API key for external service integration (shared across all instances)",
+                    },
+                    "api_base_url": {
+                        "type": "string",
+                        "title": "API Base URL",
+                        "description": "Base URL for external API calls",
+                        "default": "https://api.example.com",
+                    },
                     "debug_mode": {
                         "type": "boolean",
-                        "description": "Enable debug logging",
+                        "title": "Debug Mode",
+                        "description": "Enable verbose debug logging for all components",
                         "default": False,
                     },
                 },

@@ -18,7 +18,8 @@
       "Bash(pip install:*)",
       "Bash(python:*)",
       "Bash(.venv/Scripts/activate)",
-      "Bash(.venv\\\\\\\\Scripts\\\\\\\\python.exe:*)"
+      "Bash(.venv\\\\\\\\Scripts\\\\\\\\python.exe:*)",
+      "Bash(npx tsc:*)"
     ],
     "additionalDirectories": [
       "c:\\Users\\hinke\\Repos\\data-nexus-frontend"
