@@ -8,6 +8,7 @@ import CollectionsPage from './pages/CollectionsPage';
 import DashboardPage from './pages/DashboardPage';
 import DocumentsPage from './pages/DocumentsPage';
 import LoginPage from './pages/LoginPage';
+import PluginsPage from './pages/PluginsPage';
 import WorkspacesPage from './pages/WorkspacesPage';
 
 const queryClient = new QueryClient({
@@ -62,6 +63,16 @@ function App() {
                 <ProtectedRoute>
                   <DashboardLayout>
                     <DocumentsPage />
+                  </DashboardLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/dashboard/plugins"
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout>
+                    <PluginsPage />
                   </DashboardLayout>
                 </ProtectedRoute>
               }

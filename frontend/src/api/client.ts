@@ -164,3 +164,147 @@ export const documentsApi = {
 export const syncHistoryApi = {
   latest: () => apiClient.get<LatestSyncs>('/api/sync-history/latest/'),
 };
+
+// Plugin types
+export interface Plugin {
+  id: number;
+  slug: string;
+  name: string;
+  author: string;
+  version: string;
+  description: string;
+  python_path: string;
+  enabled: boolean;
+  installed_at: string;
+  config_schema: Record<string, any>;
+  config: Record<string, any>;
+  components_count: {
+    importers: number;
+    preprocessors: number;
+    postprocessors: number;
+  };
+}
+
+export interface PluginComponent {
+  id: number;
+  plugin: number;
+  plugin_name: string;
+  plugin_slug: string;
+  component_type: 'importer' | 'preprocessor' | 'postprocessor';
+  slug: string;
+  full_slug: string;
+  name: string;
+  description: string;
+  python_path: string;
+  config_schema: Record<string, any>;
+  instances_count: number;
+}
+
+export interface PluginInstance {
+  id: number;
+  component: number;
+  component_name: string;
+  component_type: 'importer' | 'preprocessor' | 'postprocessor';
+  plugin_name: string;
+  name: string;
+  enabled: boolean;
+  priority: number;
+  config: Record<string, any>;
+  config_schema: Record<string, any>;
+  event_triggers: string[];
+  collections: number[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AvailablePlugin {
+  slug: string;
+  name: string;
+  version: string;
+  author: string;
+  description: string;
+  config_schema: Record<string, any>;
+  importers: Array<{
+    slug: string;
+    name: string;
+    description: string;
+    config_schema: Record<string, any>;
+  }>;
+  preprocessors: Array<{
+    slug: string;
+    name: string;
+    description: string;
+    config_schema: Record<string, any>;
+  }>;
+  postprocessors: Array<{
+    slug: string;
+    name: string;
+    description: string;
+    config_schema: Record<string, any>;
+    supported_events: string[];
+  }>;
+}
+
+export interface PluginExecutionLog {
+  id: number;
+  instance: number;
+  instance_name: string;
+  document: number | null;
+  document_identifier: string | null;
+  status: 'started' | 'success' | 'failed';
+  event_type: string;
+  started_at: string;
+  completed_at: string | null;
+  input_data: Record<string, any>;
+  output_data: Record<string, any>;
+  error_message: string;
+}
+
+// Plugin API functions
+export const pluginsApi = {
+  list: () => apiClient.get<PaginatedResponse<Plugin>>('/api/plugins/'),
+  get: (slug: string) => apiClient.get<Plugin>(`/api/plugins/${slug}/`),
+  available: () => apiClient.get<AvailablePlugin[]>('/api/plugins/available/'),
+  install: (slug: string, config?: Record<string, any>) =>
+    apiClient.post<Plugin>('/api/plugins/install/', { slug, config }),
+  uninstall: (slug: string) => apiClient.delete(`/api/plugins/${slug}/uninstall/`),
+  toggle: (slug: string) => apiClient.post<{ enabled: boolean }>(`/api/plugins/${slug}/toggle/`),
+  updateConfig: (slug: string, config: Record<string, any>) =>
+    apiClient.patch<Plugin>(`/api/plugins/${slug}/`, { config }),
+};
+
+export const pluginComponentsApi = {
+  list: (params?: { plugin?: string; type?: string }) =>
+    apiClient.get<PaginatedResponse<PluginComponent>>('/api/plugin-components/', { params }),
+  importers: () => apiClient.get<PluginComponent[]>('/api/plugin-components/importers/'),
+  preprocessors: () => apiClient.get<PluginComponent[]>('/api/plugin-components/preprocessors/'),
+  postprocessors: () => apiClient.get<PluginComponent[]>('/api/plugin-components/postprocessors/'),
+};
+
+export const pluginInstancesApi = {
+  list: (params?: { type?: string; plugin?: string; enabled?: boolean }) =>
+    apiClient.get<PaginatedResponse<PluginInstance>>('/api/plugin-instances/', { params }),
+  get: (id: number) => apiClient.get<PluginInstance>(`/api/plugin-instances/${id}/`),
+  create: (data: {
+    component: number;
+    name: string;
+    enabled?: boolean;
+    priority?: number;
+    config?: Record<string, any>;
+    event_triggers?: string[];
+    collections?: number[];
+  }) => apiClient.post<PluginInstance>('/api/plugin-instances/', data),
+  update: (id: number, data: Partial<PluginInstance>) =>
+    apiClient.patch<PluginInstance>(`/api/plugin-instances/${id}/`, data),
+  delete: (id: number) => apiClient.delete(`/api/plugin-instances/${id}/`),
+  toggle: (id: number) => apiClient.post<{ enabled: boolean }>(`/api/plugin-instances/${id}/toggle/`),
+  run: (id: number) => apiClient.post<{ success: boolean; results: any[] }>(`/api/plugin-instances/${id}/run/`),
+  importers: () => apiClient.get<PluginInstance[]>('/api/plugin-instances/importers/'),
+  preprocessors: () => apiClient.get<PluginInstance[]>('/api/plugin-instances/preprocessors/'),
+  postprocessors: () => apiClient.get<PluginInstance[]>('/api/plugin-instances/postprocessors/'),
+};
+
+export const pluginLogsApi = {
+  list: (params?: { instance?: number; document?: number; status?: string; event?: string }) =>
+    apiClient.get<PaginatedResponse<PluginExecutionLog>>('/api/plugin-logs/', { params }),
+};

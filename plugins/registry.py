@@ -65,6 +65,8 @@ class PluginRegistry:
 
     def _load_plugin_module(self, module_path: str) -> None:
         """Load a plugin from a module path."""
+        from plugins.base import BasePlugin, PluginMeta
+
         try:
             module = importlib.import_module(module_path)
 
@@ -73,13 +75,14 @@ class PluginRegistry:
                 attr = getattr(module, attr_name)
                 if (
                     isinstance(attr, type)
+                    and issubclass(attr, BasePlugin)
+                    and attr is not BasePlugin
                     and hasattr(attr, 'get_meta')
-                    and attr_name != 'BasePlugin'
                 ):
-                    # Check if it's a plugin class
+                    # Check if it's a plugin class by verifying get_meta returns PluginMeta
                     try:
                         meta = attr.get_meta()
-                        if meta and hasattr(meta, 'slug'):
+                        if isinstance(meta, PluginMeta) and meta.slug:
                             self.register_plugin(attr)
                     except (TypeError, AttributeError):
                         continue
