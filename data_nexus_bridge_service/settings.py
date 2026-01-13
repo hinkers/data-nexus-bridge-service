@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'django_filters',
     'affinda_bridge',
+    'plugins',
 ]
 
 MIDDLEWARE = [
@@ -172,3 +173,9 @@ CORS_ALLOWED_ORIGINS = [
 ]
 
 CORS_ALLOW_CREDENTIALS = True
+
+# Plugin System Configuration
+# List of Python module paths to discover plugins from
+PLUGIN_MODULES = [
+    'plugins.contrib.example_plugin',  # Example plugin for demonstration
+]

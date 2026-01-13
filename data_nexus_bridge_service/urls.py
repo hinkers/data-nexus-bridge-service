@@ -20,4 +20,5 @@ from django.urls import include, path
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', include('affinda_bridge.urls')),
+    path('', include('plugins.urls')),
 ]
