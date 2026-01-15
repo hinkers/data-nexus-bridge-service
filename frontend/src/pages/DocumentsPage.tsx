@@ -15,6 +15,13 @@ function DocumentsPage() {
   const [selectedCollection, setSelectedCollection] = useState<string>(collectionIdFromUrl || '');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [hasNextPage, setHasNextPage] = useState(false);
+  const [hasPrevPage, setHasPrevPage] = useState(false);
+  const pageSize = 100; // Matches backend PAGE_SIZE
+
   useEffect(() => {
     // Update selected collection when URL parameter changes
     if (collectionIdFromUrl) {
@@ -22,19 +29,32 @@ function DocumentsPage() {
     }
   }, [collectionIdFromUrl]);
 
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedCollection]);
+
   useEffect(() => {
     fetchData();
-  }, [selectedCollection]);
+  }, [selectedCollection, currentPage]);
 
   const fetchData = async () => {
     try {
       setIsLoading(true);
+      const params: { collection?: string; page?: number } = { page: currentPage };
+      if (selectedCollection) {
+        params.collection = String(selectedCollection);
+      }
+
       const [docsRes, collectionsRes] = await Promise.all([
-        documentsApi.list(selectedCollection ? { collection: String(selectedCollection) } : undefined),
+        documentsApi.list(params),
         collectionsApi.list(),
       ]);
 
       setDocuments(docsRes.data.results);
+      setTotalCount(docsRes.data.count);
+      setHasNextPage(!!docsRes.data.next);
+      setHasPrevPage(!!docsRes.data.previous);
       setCollections(collectionsRes.data.results);
 
       // Fetch field definitions for all collections
@@ -45,8 +65,6 @@ function DocumentsPage() {
       );
 
       const flatFieldDefs = allFieldDefs.flatMap(res => res.data.results);
-      console.log('Fetched field definitions:', flatFieldDefs);
-      console.log('Collections:', collectionsRes.data.results);
       setFieldDefinitions(flatFieldDefs);
     } catch (error) {
       console.error('Failed to fetch documents:', error);
@@ -152,7 +170,13 @@ function DocumentsPage() {
           <div className="flex justify-between items-center mb-2">
             <h2 className="text-xl font-bold text-gray-900">Document List</h2>
             <span className="text-sm text-gray-500">
-              {isLoading ? 'Loading...' : `${filteredDocuments.length} of ${documents.length} document${documents.length !== 1 ? 's' : ''}`}
+              {isLoading ? 'Loading...' : (
+                totalCount === 0
+                  ? '0 documents'
+                  : searchQuery
+                    ? `${filteredDocuments.length} matching (page ${currentPage}, ${totalCount} total)`
+                    : `Showing ${((currentPage - 1) * pageSize) + 1}-${Math.min(currentPage * pageSize, totalCount)} of ${totalCount} document${totalCount !== 1 ? 's' : ''}`
+              )}
             </span>
           </div>
           {isLoading ? (
@@ -194,6 +218,45 @@ function DocumentsPage() {
                 </div>
               </div>
             ))
+          )}
+
+          {/* Pagination Controls */}
+          {!isLoading && totalCount > 0 && (
+            <div className="flex items-center justify-between bg-white rounded-xl p-4 shadow-sm">
+              <div className="text-sm text-gray-600">
+                Page {currentPage} of {Math.ceil(totalCount / pageSize)}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setCurrentPage(1)}
+                  disabled={!hasPrevPage}
+                  className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  First
+                </button>
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={!hasPrevPage}
+                  className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Previous
+                </button>
+                <button
+                  onClick={() => setCurrentPage(p => p + 1)}
+                  disabled={!hasNextPage}
+                  className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Next
+                </button>
+                <button
+                  onClick={() => setCurrentPage(Math.ceil(totalCount / pageSize))}
+                  disabled={!hasNextPage}
+                  className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Last
+                </button>
+              </div>
+            </div>
           )}
         </div>
 

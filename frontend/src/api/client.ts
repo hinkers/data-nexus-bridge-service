@@ -157,7 +157,7 @@ export const dataPointsApi = {
 };
 
 export const documentsApi = {
-  list: (params?: { workspace?: string; collection?: string; state?: string }) =>
+  list: (params?: { workspace?: string; collection?: string; state?: string; page?: number; search?: string }) =>
     apiClient.get<PaginatedResponse<Document>>('/api/documents/', { params }),
   get: (id: number) => apiClient.get<Document>(`/api/documents/${id}/`),
 };
