@@ -331,3 +331,65 @@ export const pluginLogsApi = {
   list: (params?: { instance?: number; document?: number; status?: string; event?: string }) =>
     apiClient.get<PaginatedResponse<PluginExecutionLog>>('/api/plugin-logs/', { params }),
 };
+
+// System API types
+export interface GitInfo {
+  current_commit: string | null;
+  current_commit_short: string | null;
+  current_branch: string | null;
+  last_commit_date: string | null;
+  last_commit_message: string | null;
+  remote_url: string | null;
+  has_uncommitted_changes: boolean | null;
+  is_git_repo: boolean;
+  error?: string;
+}
+
+export interface VersionInfo {
+  app_version: string;
+  git: GitInfo;
+  debug_mode: boolean;
+  database_engine: string;
+}
+
+export interface UpdateCheckResult {
+  update_available: boolean;
+  local_commit?: string;
+  remote_commit?: string;
+  commits_behind?: number;
+  commits_ahead?: number;
+  new_commits?: Array<{ hash: string; message: string }>;
+  current_branch?: string;
+  error?: string;
+}
+
+export interface UpdateApplyResult {
+  success: boolean;
+  message?: string;
+  output?: string;
+  new_commit?: string;
+  requires_restart?: boolean;
+  error?: string;
+  has_uncommitted_changes?: boolean;
+}
+
+export interface SystemStatus {
+  database: {
+    status: string;
+    engine: string;
+  };
+  plugins: {
+    available: number;
+    installed: number;
+    active_instances: number;
+  };
+  debug_mode: boolean;
+}
+
+// System API functions
+export const systemApi = {
+  getVersion: () => apiClient.get<VersionInfo>('/api/system/version/'),
+  getStatus: () => apiClient.get<SystemStatus>('/api/system/status/'),
+  checkUpdates: () => apiClient.get<UpdateCheckResult>('/api/system/updates/check/'),
+  applyUpdates: () => apiClient.post<UpdateApplyResult>('/api/system/updates/apply/'),
+};

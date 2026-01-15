@@ -9,6 +9,7 @@ import DashboardPage from './pages/DashboardPage';
 import DocumentsPage from './pages/DocumentsPage';
 import LoginPage from './pages/LoginPage';
 import PluginsPage from './pages/PluginsPage';
+import SettingsPage from './pages/SettingsPage';
 import WorkspacesPage from './pages/WorkspacesPage';
 
 const queryClient = new QueryClient({
@@ -73,6 +74,16 @@ function App() {
                 <ProtectedRoute>
                   <DashboardLayout>
                     <PluginsPage />
+                  </DashboardLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/dashboard/settings"
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout>
+                    <SettingsPage />
                   </DashboardLayout>
                 </ProtectedRoute>
               }

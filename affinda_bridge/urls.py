@@ -1,7 +1,7 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from affinda_bridge import api_views, auth_views
+from affinda_bridge import api_views, auth_views, system_views
 
 # Create a router and register our viewsets
 router = DefaultRouter()
@@ -17,6 +17,11 @@ urlpatterns = [
     path("api/auth/login/", auth_views.login, name="auth-login"),
     path("api/auth/logout/", auth_views.logout, name="auth-logout"),
     path("api/auth/profile/", auth_views.user_profile, name="auth-profile"),
+    # System endpoints
+    path("api/system/version/", system_views.version_info, name="system-version"),
+    path("api/system/status/", system_views.system_status, name="system-status"),
+    path("api/system/updates/check/", system_views.check_updates, name="system-check-updates"),
+    path("api/system/updates/apply/", system_views.apply_updates, name="system-apply-updates"),
     # API endpoints
     path("api/", include(router.urls)),
 ]
