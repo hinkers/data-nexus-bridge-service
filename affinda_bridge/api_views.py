@@ -38,6 +38,7 @@ from affinda_bridge.services import (
     ExternalTableBuilder,
     SQLViewBuilder,
     sync_collection_field_values,
+    sync_document_field_values,
 )
 
 
@@ -234,6 +235,61 @@ class DocumentViewSet(viewsets.ReadOnlyModelViewSet):
             # Don't load heavy JSON fields for list view
             return queryset.defer("data", "meta", "raw")
         return queryset
+
+    @action(detail=True, methods=["post"])
+    def refresh(self, request, pk=None):
+        """Refresh document data from Affinda API"""
+        document = self.get_object()
+
+        try:
+            # Fetch latest data from Affinda
+            client = AffindaClient()
+            affinda_doc = client.get_document(identifier=document.identifier)
+
+            # Update document fields
+            document.custom_identifier = affinda_doc.get("customIdentifier", "") or ""
+            document.file_name = affinda_doc.get("fileName", "") or document.file_name
+            document.file_url = affinda_doc.get("fileUrl", "") or ""
+            document.review_url = affinda_doc.get("reviewUrl", "") or ""
+            document.state = affinda_doc.get("state", "") or "unknown"
+            document.is_confirmed = affinda_doc.get("isConfirmed", False)
+            document.in_review = affinda_doc.get("inReview", False)
+            document.failed = affinda_doc.get("failed", False)
+            document.ready = affinda_doc.get("ready", False)
+            document.validatable = affinda_doc.get("validatable", False)
+            document.has_challenges = affinda_doc.get("hasChallenges", False)
+
+            # Parse dates
+            uploaded_dt = affinda_doc.get("uploadedDt")
+            if uploaded_dt:
+                document.uploaded_dt = uploaded_dt
+
+            last_updated = affinda_doc.get("lastUpdatedDt")
+            if last_updated:
+                document.last_updated_dt = last_updated
+
+            # Update JSON fields
+            document.data = affinda_doc.get("data", {}) or {}
+            document.meta = affinda_doc.get("meta", {}) or {}
+            document.tags = affinda_doc.get("tags", []) or []
+            document.raw = affinda_doc
+
+            document.save()
+
+            # Sync field values from the updated data
+            synced_count = sync_document_field_values(document)
+
+            return Response({
+                "success": True,
+                "message": f"Document refreshed successfully. {synced_count} field values synced.",
+                "document": DocumentSerializer(document).data,
+            })
+
+        except Exception as e:
+            return Response(
+                {"success": False, "message": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 class SyncHistoryViewSet(viewsets.ReadOnlyModelViewSet):

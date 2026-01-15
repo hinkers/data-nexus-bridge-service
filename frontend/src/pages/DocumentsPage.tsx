@@ -14,6 +14,8 @@ function DocumentsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedCollection, setSelectedCollection] = useState<string>(collectionIdFromUrl || '');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshMessage, setRefreshMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -102,6 +104,33 @@ function DocumentsPage() {
       })
     });
     return fieldDefinitions.filter(fd => fd.collection === doc.collection);
+  };
+
+  const handleRefreshDocument = async () => {
+    if (!selectedDocument) return;
+
+    setIsRefreshing(true);
+    setRefreshMessage(null);
+
+    try {
+      const response = await documentsApi.refresh(selectedDocument.id);
+      if (response.data.success && response.data.document) {
+        // Update the selected document with refreshed data
+        setSelectedDocument(response.data.document);
+        // Also update in the documents list
+        setDocuments(docs =>
+          docs.map(d => d.id === selectedDocument.id ? response.data.document! : d)
+        );
+        setRefreshMessage({ type: 'success', text: response.data.message });
+      } else {
+        setRefreshMessage({ type: 'error', text: response.data.message || 'Failed to refresh document' });
+      }
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to refresh document';
+      setRefreshMessage({ type: 'error', text: errorMessage });
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   const filteredDocuments = documents
@@ -353,8 +382,26 @@ function DocumentsPage() {
                 </div>
               )}
 
+              {/* Refresh Message */}
+              {refreshMessage && (
+                <div className={`p-4 rounded-lg ${
+                  refreshMessage.type === 'success'
+                    ? 'bg-green-50 text-green-700 border border-green-200'
+                    : 'bg-red-50 text-red-700 border border-red-200'
+                }`}>
+                  {refreshMessage.text}
+                </div>
+              )}
+
               {/* Action Buttons */}
               <div className="grid grid-cols-2 gap-4">
+                <button
+                  onClick={handleRefreshDocument}
+                  disabled={isRefreshing}
+                  className="block text-center bg-gradient-to-r from-green-600 to-emerald-600 text-white py-3 rounded-lg font-semibold hover:from-green-700 hover:to-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isRefreshing ? 'Refreshing...' : 'Refresh from Affinda'}
+                </button>
                 <a
                   href={`https://app.affinda.com/document/${selectedDocument.identifier}`}
                   target="_blank"
@@ -368,7 +415,7 @@ function DocumentsPage() {
                     href={selectedDocument.file_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="block text-center bg-gradient-to-r from-gray-600 to-gray-700 text-white py-3 rounded-lg font-semibold hover:from-gray-700 hover:to-gray-800 transition"
+                    className="block text-center bg-gradient-to-r from-gray-600 to-gray-700 text-white py-3 rounded-lg font-semibold hover:from-gray-700 hover:to-gray-800 transition col-span-2"
                   >
                     View Original File
                   </a>

@@ -156,10 +156,17 @@ export const dataPointsApi = {
   get: (identifier: string) => apiClient.get<DataPoint>(`/api/data-points/${identifier}/`),
 };
 
+export interface DocumentRefreshResult {
+  success: boolean;
+  message: string;
+  document?: Document;
+}
+
 export const documentsApi = {
   list: (params?: { workspace?: string; collection?: string; state?: string; page?: number; search?: string }) =>
     apiClient.get<PaginatedResponse<Document>>('/api/documents/', { params }),
   get: (id: number) => apiClient.get<Document>(`/api/documents/${id}/`),
+  refresh: (id: number) => apiClient.post<DocumentRefreshResult>(`/api/documents/${id}/refresh/`),
 };
 
 export const syncHistoryApi = {
