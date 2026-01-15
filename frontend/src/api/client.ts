@@ -396,6 +396,11 @@ export const systemApi = {
 };
 
 // Collection View types
+export interface DocumentColumnOption {
+  name: string;
+  label: string;
+}
+
 export interface CollectionView {
   id: number;
   collection: number;
@@ -405,16 +410,20 @@ export interface CollectionView {
   description: string;
   is_active: boolean;
   include_fields: number[];
+  include_document_columns: string[];
   last_refreshed_at: string | null;
   error_message: string;
   created_at: string;
   updated_at: string;
   fields_count: number;
+  available_document_columns: DocumentColumnOption[];
 }
 
 export interface CollectionViewPreview {
   create_sql: string;
   drop_sql: string;
+  document_columns: string[];
+  available_document_columns: DocumentColumnOption[];
   fields: Array<{
     id: number;
     name: string;
@@ -437,10 +446,19 @@ export const collectionViewsApi = {
   list: (params?: { collection?: number; is_active?: boolean }) =>
     apiClient.get<PaginatedResponse<CollectionView>>('/api/collection-views/', { params }),
   get: (id: number) => apiClient.get<CollectionView>(`/api/collection-views/${id}/`),
-  create: (data: { collection: number; name: string; description?: string; include_fields?: number[] }) =>
-    apiClient.post<CollectionView>('/api/collection-views/', data),
-  update: (id: number, data: { name?: string; description?: string; include_fields?: number[] }) =>
-    apiClient.patch<CollectionView>(`/api/collection-views/${id}/`, data),
+  create: (data: {
+    collection: number;
+    name: string;
+    description?: string;
+    include_fields?: number[];
+    include_document_columns?: string[];
+  }) => apiClient.post<CollectionView>('/api/collection-views/', data),
+  update: (id: number, data: {
+    name?: string;
+    description?: string;
+    include_fields?: number[];
+    include_document_columns?: string[];
+  }) => apiClient.patch<CollectionView>(`/api/collection-views/${id}/`, data),
   delete: (id: number) => apiClient.delete(`/api/collection-views/${id}/`),
   activate: (id: number) =>
     apiClient.post<CollectionViewActionResult>(`/api/collection-views/${id}/activate/`),

@@ -193,6 +193,33 @@ class CollectionView(models.Model):
     Tracks view definitions and their current state in the database.
     """
 
+    # Available document columns that can be included in the view
+    DOCUMENT_COLUMNS = [
+        ("identifier", "Identifier"),
+        ("custom_identifier", "Custom Identifier"),
+        ("file_name", "File Name"),
+        ("file_url", "File URL"),
+        ("review_url", "Review URL"),
+        ("state", "State"),
+        ("is_confirmed", "Is Confirmed"),
+        ("in_review", "In Review"),
+        ("failed", "Failed"),
+        ("ready", "Ready"),
+        ("validatable", "Validatable"),
+        ("has_challenges", "Has Challenges"),
+        ("created_dt", "Created Date"),
+        ("uploaded_dt", "Uploaded Date"),
+        ("last_updated_dt", "Last Updated Date"),
+    ]
+    DEFAULT_DOCUMENT_COLUMNS = [
+        "identifier",
+        "custom_identifier",
+        "file_name",
+        "review_url",
+        "state",
+        "created_dt",
+    ]
+
     collection = models.ForeignKey(
         Collection,
         on_delete=models.CASCADE,
@@ -217,6 +244,11 @@ class CollectionView(models.Model):
         default=list,
         blank=True,
         help_text="List of field_definition IDs to include (empty = all)",
+    )
+    include_document_columns = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of document column names to include (empty = defaults)",
     )
     last_sql = models.TextField(
         blank=True,

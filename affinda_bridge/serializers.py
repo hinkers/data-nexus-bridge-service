@@ -183,6 +183,7 @@ class DocumentFieldValueSerializer(serializers.ModelSerializer):
 class CollectionViewSerializer(serializers.ModelSerializer):
     collection_name = serializers.CharField(source="collection.name", read_only=True)
     fields_count = serializers.SerializerMethodField()
+    available_document_columns = serializers.SerializerMethodField()
 
     class Meta:
         model = CollectionView
@@ -195,11 +196,13 @@ class CollectionViewSerializer(serializers.ModelSerializer):
             "description",
             "is_active",
             "include_fields",
+            "include_document_columns",
             "last_refreshed_at",
             "error_message",
             "created_at",
             "updated_at",
             "fields_count",
+            "available_document_columns",
         ]
         read_only_fields = [
             "id",
@@ -210,12 +213,19 @@ class CollectionViewSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "fields_count",
+            "available_document_columns",
         ]
 
     def get_fields_count(self, obj: CollectionView) -> int:
         if obj.include_fields:
             return len(obj.include_fields)
         return FieldDefinition.objects.filter(collection=obj.collection).count()
+
+    def get_available_document_columns(self, obj: CollectionView) -> list[dict]:
+        return [
+            {"name": col[0], "label": col[1]}
+            for col in CollectionView.DOCUMENT_COLUMNS
+        ]
 
 
 class CollectionViewCreateSerializer(serializers.ModelSerializer):
@@ -228,10 +238,22 @@ class CollectionViewCreateSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "include_fields",
+            "include_document_columns",
         ]
 
     def validate_name(self, value):
         """Ensure name is suitable for SQL view name generation."""
         if not value or len(value) < 2:
             raise serializers.ValidationError("Name must be at least 2 characters")
+        return value
+
+    def validate_include_document_columns(self, value):
+        """Ensure only valid document columns are included."""
+        if value:
+            valid_columns = {col[0] for col in CollectionView.DOCUMENT_COLUMNS}
+            invalid = set(value) - valid_columns
+            if invalid:
+                raise serializers.ValidationError(
+                    f"Invalid document columns: {', '.join(invalid)}"
+                )
         return value

@@ -75,10 +75,25 @@ class SQLViewBuilder:
             FieldDefinition.objects.filter(collection=self.collection).order_by("name")
         )
 
+    def get_document_columns(self) -> list[str]:
+        """Get the document columns to include in the view."""
+        from affinda_bridge.models import CollectionView
+
+        if self.collection_view.include_document_columns:
+            # Filter to only valid column names
+            valid_columns = {col[0] for col in CollectionView.DOCUMENT_COLUMNS}
+            return [
+                col
+                for col in self.collection_view.include_document_columns
+                if col in valid_columns
+            ]
+        return CollectionView.DEFAULT_DOCUMENT_COLUMNS
+
     def build_create_sql(self) -> str:
         """Build the CREATE VIEW SQL statement."""
         view_name = self._quote_identifier(self.collection_view.sql_view_name)
         fields = self.get_fields()
+        document_columns = self.get_document_columns()
 
         # Build field columns using CASE WHEN for pivot
         field_columns = []
@@ -92,17 +107,14 @@ class SQLViewBuilder:
                 f"THEN dfv.value END) AS {quoted_col}"
             )
 
-        # Build the SELECT clause
-        columns = [
-            "d.identifier",
-            "d.custom_identifier",
-            "d.file_name",
-            "d.review_url",
-            "d.state",
-            "d.created_dt",
-        ] + field_columns
+        # Build the SELECT clause with selected document columns
+        columns = [f"d.{col}" for col in document_columns] + field_columns
 
         columns_sql = ",\n    ".join(columns)
+
+        # Build GROUP BY clause with document columns
+        group_by_columns = ["d.id"] + [f"d.{col}" for col in document_columns]
+        group_by_sql = ", ".join(group_by_columns)
 
         # Base query with joins
         base_query = f"""
@@ -111,7 +123,7 @@ SELECT
 FROM affinda_bridge_document d
 LEFT JOIN affinda_bridge_documentfieldvalue dfv ON dfv.document_id = d.id
 WHERE d.collection_id = {self.collection.pk}
-GROUP BY d.id, d.identifier, d.custom_identifier, d.file_name, d.review_url, d.state, d.created_dt
+GROUP BY {group_by_sql}
 """
 
         # Database-specific CREATE VIEW syntax

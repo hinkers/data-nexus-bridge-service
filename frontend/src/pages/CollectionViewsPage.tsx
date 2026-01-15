@@ -6,6 +6,7 @@ import {
   type Collection,
   type CollectionView,
   type CollectionViewPreview,
+  type DocumentColumnOption,
   type FieldDefinition,
 } from '../api/client';
 
@@ -34,6 +35,12 @@ function CollectionViewsPage() {
   const [availableFields, setAvailableFields] = useState<FieldDefinition[]>([]);
   const [selectedFields, setSelectedFields] = useState<number[]>([]);
   const [isLoadingFields, setIsLoadingFields] = useState(false);
+
+  // Document columns modal state
+  const [columnsView, setColumnsView] = useState<CollectionView | null>(null);
+  const [availableColumns, setAvailableColumns] = useState<DocumentColumnOption[]>([]);
+  const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
+  const [isSavingColumns, setIsSavingColumns] = useState(false);
 
   // Action states
   const [actionLoading, setActionLoading] = useState<{ [key: number]: string }>({});
@@ -228,6 +235,36 @@ function CollectionViewsPage() {
     );
   };
 
+  const handleShowColumns = (view: CollectionView) => {
+    setColumnsView(view);
+    setAvailableColumns(view.available_document_columns || []);
+    // If no columns selected, use defaults (empty array means defaults will be used)
+    setSelectedColumns(view.include_document_columns || []);
+  };
+
+  const handleSaveColumns = async () => {
+    if (!columnsView) return;
+
+    try {
+      setIsSavingColumns(true);
+      await collectionViewsApi.update(columnsView.id, {
+        include_document_columns: selectedColumns,
+      });
+      setColumnsView(null);
+      fetchData();
+    } catch (err: any) {
+      setError('Failed to update columns');
+    } finally {
+      setIsSavingColumns(false);
+    }
+  };
+
+  const toggleColumn = (columnName: string) => {
+    setSelectedColumns((prev) =>
+      prev.includes(columnName) ? prev.filter((c) => c !== columnName) : [...prev, columnName]
+    );
+  };
+
   if (isLoading) {
     return (
       <div className="p-6 md:p-8 lg:p-12">
@@ -322,6 +359,13 @@ function CollectionViewsPage() {
                     title="Preview SQL"
                   >
                     Preview
+                  </button>
+                  <button
+                    onClick={() => handleShowColumns(view)}
+                    className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors"
+                    title="Configure Document Columns"
+                  >
+                    Columns
                   </button>
                   <button
                     onClick={() => handleShowFields(view)}
@@ -471,12 +515,29 @@ function CollectionViewsPage() {
                   </h3>
                 </div>
                 <div>
-                  <h3 className="text-sm font-medium text-gray-700 mb-2">Fields ({preview.fields.length})</h3>
+                  <h3 className="text-sm font-medium text-gray-700 mb-2">
+                    Document Columns ({preview.document_columns.length})
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
+                    {preview.document_columns.map((col) => (
+                      <span
+                        key={col}
+                        className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-sm font-mono"
+                      >
+                        {col}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <h3 className="text-sm font-medium text-gray-700 mb-2">
+                    Field Columns ({preview.fields.length})
+                  </h3>
                   <div className="flex flex-wrap gap-2">
                     {preview.fields.map((field) => (
                       <span
                         key={field.id}
-                        className="px-2 py-1 bg-gray-100 rounded text-sm font-mono"
+                        className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-sm font-mono"
                         title={`Column: ${field.column_name}`}
                       >
                         {field.name || field.slug}
@@ -564,6 +625,68 @@ function CollectionViewsPage() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Document Columns Modal */}
+      {columnsView && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 w-full max-w-lg mx-4 max-h-[90vh] overflow-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold">Document Columns: {columnsView.name}</h2>
+              <button
+                onClick={() => setColumnsView(null)}
+                className="text-gray-500 hover:text-gray-700 text-2xl"
+              >
+                &times;
+              </button>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">
+              Select which document columns to include in this view. Leave all unchecked to use defaults
+              (identifier, custom_identifier, file_name, review_url, state, created_dt).
+            </p>
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {availableColumns.map((column) => (
+                <label
+                  key={column.name}
+                  className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedColumns.includes(column.name)}
+                    onChange={() => toggleColumn(column.name)}
+                    className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                  />
+                  <div>
+                    <div className="font-medium text-gray-900">{column.label}</div>
+                    <div className="text-xs text-gray-500 font-mono">{column.name}</div>
+                  </div>
+                </label>
+              ))}
+            </div>
+            <div className="flex justify-between items-center mt-6">
+              <span className="text-sm text-gray-500">
+                {selectedColumns.length === 0
+                  ? 'Default columns will be used'
+                  : `${selectedColumns.length} column(s) selected`}
+              </span>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setColumnsView(null)}
+                  className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveColumns}
+                  disabled={isSavingColumns}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50"
+                >
+                  {isSavingColumns ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

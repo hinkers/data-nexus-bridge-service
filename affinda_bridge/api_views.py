@@ -361,6 +361,8 @@ class CollectionViewViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["get"])
     def preview(self, request, pk=None):
         """Preview the SQL that would be generated for this view."""
+        from affinda_bridge.models import CollectionView as CollectionViewModel
+
         collection_view = self.get_object()
         builder = SQLViewBuilder(collection_view)
 
@@ -368,11 +370,17 @@ class CollectionViewViewSet(viewsets.ModelViewSet):
             create_sql = builder.build_create_sql()
             drop_sql = builder.build_drop_sql()
             fields = builder.get_fields()
+            document_columns = builder.get_document_columns()
 
             return Response(
                 {
                     "create_sql": create_sql,
                     "drop_sql": drop_sql,
+                    "document_columns": document_columns,
+                    "available_document_columns": [
+                        {"name": col[0], "label": col[1]}
+                        for col in CollectionViewModel.DOCUMENT_COLUMNS
+                    ],
                     "fields": [
                         {
                             "id": f.id,
