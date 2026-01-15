@@ -90,12 +90,43 @@ WSGI_APPLICATION = 'data_nexus_bridge_service.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+DB_ENGINE = os.environ.get("DB_ENGINE", "sqlite")
+
+if DB_ENGINE == "mssql":
+    # SQL Server configuration
+    DATABASES = {
+        'default': {
+            'ENGINE': 'mssql',
+            'NAME': os.environ.get("DB_NAME", "DataNexusBridge"),
+            'HOST': os.environ.get("DB_HOST", "localhost"),
+            'USER': os.environ.get("DB_USER", ""),
+            'PASSWORD': os.environ.get("DB_PASSWORD", ""),
+            'OPTIONS': {
+                'driver': 'ODBC Driver 17 for SQL Server',
+                'extra_params': 'TrustServerCertificate=yes',
+            },
+        }
     }
-}
+elif DB_ENGINE == "postgresql":
+    # PostgreSQL configuration
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.environ.get("DB_NAME", "datanexusbridge"),
+            'HOST': os.environ.get("DB_HOST", "localhost"),
+            'PORT': os.environ.get("DB_PORT", "5432"),
+            'USER': os.environ.get("DB_USER", ""),
+            'PASSWORD': os.environ.get("DB_PASSWORD", ""),
+        }
+    }
+else:
+    # SQLite (default for development)
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 
 # Password validation

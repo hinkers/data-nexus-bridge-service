@@ -1,0 +1,35 @@
+# Data Nexus Bridge Service - Python Dependencies
+
+# Django and REST Framework
+Django>=6.0
+djangorestframework>=3.16
+django-cors-headers>=4.9
+django-filter>=25.2
+
+# Affinda SDK
+affinda>=4.28
+
+# HTTP client
+httpx>=0.28
+aiohttp>=3.13
+
+# Environment and configuration
+python-dotenv>=1.2
+
+# Database drivers (install as needed)
+# For SQL Server: pip install mssql-django pyodbc
+# For PostgreSQL: pip install psycopg2-binary
+
+# Azure Identity (for Azure integrations)
+azure-identity>=1.25
+
+# Utilities
+packaging>=25.0
+pydantic>=2.12
+
+# Testing (development only)
+pytest>=9.0
+pytest-django>=4.11
+
+# IIS deployment (Windows only)
+wfastcgi  # Uncomment for IIS deployment

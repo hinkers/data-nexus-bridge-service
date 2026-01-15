@@ -1,0 +1,14 @@
+# Production dependencies for Data Nexus Bridge Service
+# Includes all base requirements plus production-specific packages
+
+-r requirements.txt
+
+# SQL Server driver for Windows/IIS deployment
+mssql-django>=1.4
+pyodbc>=5.1
+
+# IIS FastCGI bridge
+wfastcgi>=3.0
+
+# Production WSGI server (alternative to IIS)
+# gunicorn>=23.0  # For Linux deployments
