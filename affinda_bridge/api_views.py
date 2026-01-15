@@ -13,6 +13,8 @@ from affinda_bridge.models import (
     DataPoint,
     Document,
     DocumentFieldValue,
+    ExternalTable,
+    ExternalTableColumn,
     FieldDefinition,
     SyncHistory,
     Workspace,
@@ -25,11 +27,18 @@ from affinda_bridge.serializers import (
     DocumentFieldValueSerializer,
     DocumentListSerializer,
     DocumentSerializer,
+    ExternalTableColumnSerializer,
+    ExternalTableCreateSerializer,
+    ExternalTableSerializer,
     FieldDefinitionSerializer,
     SyncHistorySerializer,
     WorkspaceSerializer,
 )
-from affinda_bridge.services import SQLViewBuilder, sync_collection_field_values
+from affinda_bridge.services import (
+    ExternalTableBuilder,
+    SQLViewBuilder,
+    sync_collection_field_values,
+)
 
 
 class WorkspaceViewSet(viewsets.ReadOnlyModelViewSet):
@@ -407,3 +416,137 @@ class DocumentFieldValueViewSet(viewsets.ReadOnlyModelViewSet):
     ).all()
     serializer_class = DocumentFieldValueSerializer
     filterset_fields = ["document", "field_definition"]
+
+
+class ExternalTableViewSet(viewsets.ModelViewSet):
+    """
+    API endpoint for managing external tables for collections.
+
+    Endpoints:
+    - GET /api/external-tables/ - List all external tables
+    - POST /api/external-tables/ - Create a new external table definition
+    - GET /api/external-tables/{id}/ - Get table details
+    - PUT /api/external-tables/{id}/ - Update table definition
+    - DELETE /api/external-tables/{id}/ - Delete table definition and drop SQL table
+    - POST /api/external-tables/{id}/activate/ - Create table in database
+    - POST /api/external-tables/{id}/deactivate/ - Drop table from database
+    - POST /api/external-tables/{id}/rebuild/ - Rebuild (drop and recreate) table
+    - GET /api/external-tables/{id}/preview/ - Preview the SQL that would be generated
+    """
+
+    queryset = ExternalTable.objects.select_related("collection").prefetch_related(
+        "columns"
+    ).all()
+    serializer_class = ExternalTableSerializer
+    filterset_fields = ["collection", "is_active"]
+
+    def get_serializer_class(self):
+        if self.action == "create":
+            return ExternalTableCreateSerializer
+        return ExternalTableSerializer
+
+    def perform_destroy(self, instance):
+        """Drop the SQL table before deleting the record."""
+        if instance.is_active:
+            builder = ExternalTableBuilder(instance)
+            builder.drop_table()
+        instance.delete()
+
+    @action(detail=True, methods=["post"])
+    def activate(self, request, pk=None):
+        """Create the external table in the database."""
+        external_table = self.get_object()
+
+        if external_table.columns.count() == 0:
+            return Response(
+                {"success": False, "message": "Cannot create table without columns"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        builder = ExternalTableBuilder(external_table)
+        success, message = builder.create_table()
+
+        return Response(
+            {
+                "success": success,
+                "message": message,
+                "is_active": external_table.is_active,
+            },
+            status=status.HTTP_200_OK if success else status.HTTP_400_BAD_REQUEST,
+        )
+
+    @action(detail=True, methods=["post"])
+    def deactivate(self, request, pk=None):
+        """Drop the external table from the database."""
+        external_table = self.get_object()
+        builder = ExternalTableBuilder(external_table)
+        success, message = builder.drop_table()
+
+        return Response(
+            {
+                "success": success,
+                "message": message,
+                "is_active": external_table.is_active,
+            },
+            status=status.HTTP_200_OK if success else status.HTTP_400_BAD_REQUEST,
+        )
+
+    @action(detail=True, methods=["post"])
+    def rebuild(self, request, pk=None):
+        """Rebuild the table (drop and recreate with current schema)."""
+        external_table = self.get_object()
+        builder = ExternalTableBuilder(external_table)
+        success, message = builder.rebuild_table()
+
+        return Response(
+            {
+                "success": success,
+                "message": message,
+                "is_active": external_table.is_active,
+            },
+            status=status.HTTP_200_OK if success else status.HTTP_400_BAD_REQUEST,
+        )
+
+    @action(detail=True, methods=["get"])
+    def preview(self, request, pk=None):
+        """Preview the SQL that would be generated for this table."""
+        external_table = self.get_object()
+        builder = ExternalTableBuilder(external_table)
+
+        try:
+            return Response(
+                {
+                    "create_sql": builder.build_create_sql(),
+                    "drop_sql": builder.build_drop_sql(),
+                    "columns": [
+                        {
+                            "name": col.name,
+                            "sql_column_name": col.sql_column_name,
+                            "data_type": col.data_type,
+                            "sql_type": builder._get_sql_type(col.data_type),
+                        }
+                        for col in builder.get_columns()
+                    ],
+                    "db_engine": builder.db_engine,
+                }
+            )
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ExternalTableColumnViewSet(viewsets.ModelViewSet):
+    """API endpoint for managing columns within an external table."""
+
+    queryset = ExternalTableColumn.objects.select_related("external_table").all()
+    serializer_class = ExternalTableColumnSerializer
+    filterset_fields = ["external_table", "data_type"]
+
+    def perform_destroy(self, instance):
+        """Prevent column deletion if table is active."""
+        if instance.external_table.is_active:
+            from rest_framework.exceptions import ValidationError
+
+            raise ValidationError(
+                "Cannot delete column from active table. Deactivate the table first."
+            )
+        instance.delete()

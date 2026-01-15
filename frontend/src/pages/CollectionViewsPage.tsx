@@ -7,6 +7,7 @@ import {
   type CollectionView,
   type CollectionViewPreview,
   type DocumentColumnOption,
+  type ExternalTableSummary,
   type FieldDefinition,
 } from '../api/client';
 
@@ -41,6 +42,12 @@ function CollectionViewsPage() {
   const [availableColumns, setAvailableColumns] = useState<DocumentColumnOption[]>([]);
   const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
   const [isSavingColumns, setIsSavingColumns] = useState(false);
+
+  // External tables modal state
+  const [extTablesView, setExtTablesView] = useState<CollectionView | null>(null);
+  const [availableExtTables, setAvailableExtTables] = useState<ExternalTableSummary[]>([]);
+  const [selectedExtTables, setSelectedExtTables] = useState<number[]>([]);
+  const [isSavingExtTables, setIsSavingExtTables] = useState(false);
 
   // Action states
   const [actionLoading, setActionLoading] = useState<{ [key: number]: string }>({});
@@ -265,6 +272,35 @@ function CollectionViewsPage() {
     );
   };
 
+  const handleShowExtTables = (view: CollectionView) => {
+    setExtTablesView(view);
+    setAvailableExtTables(view.available_external_tables || []);
+    setSelectedExtTables(view.include_external_tables || []);
+  };
+
+  const handleSaveExtTables = async () => {
+    if (!extTablesView) return;
+
+    try {
+      setIsSavingExtTables(true);
+      await collectionViewsApi.update(extTablesView.id, {
+        include_external_tables: selectedExtTables,
+      });
+      setExtTablesView(null);
+      fetchData();
+    } catch (err: any) {
+      setError('Failed to update external tables');
+    } finally {
+      setIsSavingExtTables(false);
+    }
+  };
+
+  const toggleExtTable = (tableId: number) => {
+    setSelectedExtTables((prev) =>
+      prev.includes(tableId) ? prev.filter((id) => id !== tableId) : [...prev, tableId]
+    );
+  };
+
   if (isLoading) {
     return (
       <div className="p-6 md:p-8 lg:p-12">
@@ -373,6 +409,13 @@ function CollectionViewsPage() {
                     title="Configure Fields"
                   >
                     Fields
+                  </button>
+                  <button
+                    onClick={() => handleShowExtTables(view)}
+                    className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors"
+                    title="Configure External Tables"
+                  >
+                    Ext Tables
                   </button>
                   <button
                     onClick={() => handleSyncData(view)}
@@ -684,6 +727,97 @@ function CollectionViewsPage() {
                   className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50"
                 >
                   {isSavingColumns ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* External Tables Modal */}
+      {extTablesView && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 w-full max-w-lg mx-4 max-h-[90vh] overflow-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold">External Tables: {extTablesView.name}</h2>
+              <button
+                onClick={() => setExtTablesView(null)}
+                className="text-gray-500 hover:text-gray-700 text-2xl"
+              >
+                &times;
+              </button>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">
+              Select which external tables to join to this view. Only active tables can be included.
+            </p>
+            {availableExtTables.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-gray-500 mb-2">No external tables available for this collection.</p>
+                <a
+                  href="/dashboard/external-tables"
+                  className="text-purple-600 hover:text-purple-700 text-sm"
+                >
+                  Create an external table
+                </a>
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {availableExtTables.map((table) => (
+                  <label
+                    key={table.id}
+                    className={`flex items-center gap-3 p-3 rounded cursor-pointer ${
+                      table.is_active ? 'hover:bg-gray-50' : 'opacity-50 cursor-not-allowed'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedExtTables.includes(table.id)}
+                      onChange={() => table.is_active && toggleExtTable(table.id)}
+                      disabled={!table.is_active}
+                      className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-gray-900">{table.name}</span>
+                        <span
+                          className={`px-1.5 py-0.5 text-xs rounded ${
+                            table.is_active
+                              ? 'bg-green-100 text-green-700'
+                              : 'bg-gray-100 text-gray-500'
+                          }`}
+                        >
+                          {table.is_active ? 'Active' : 'Inactive'}
+                        </span>
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        <span className="font-mono">{table.sql_table_name}</span>
+                        <span className="mx-1">·</span>
+                        <span>{table.column_count} column(s)</span>
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+            <div className="flex justify-between items-center mt-6">
+              <span className="text-sm text-gray-500">
+                {selectedExtTables.length === 0
+                  ? 'No external tables selected'
+                  : `${selectedExtTables.length} table(s) selected`}
+              </span>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setExtTablesView(null)}
+                  className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveExtTables}
+                  disabled={isSavingExtTables}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50"
+                >
+                  {isSavingExtTables ? 'Saving...' : 'Save'}
                 </button>
               </div>
             </div>

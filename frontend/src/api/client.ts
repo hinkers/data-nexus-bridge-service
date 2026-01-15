@@ -401,6 +401,14 @@ export interface DocumentColumnOption {
   label: string;
 }
 
+export interface ExternalTableSummary {
+  id: number;
+  name: string;
+  sql_table_name: string;
+  is_active: boolean;
+  column_count: number;
+}
+
 export interface CollectionView {
   id: number;
   collection: number;
@@ -411,12 +419,14 @@ export interface CollectionView {
   is_active: boolean;
   include_fields: number[];
   include_document_columns: string[];
+  include_external_tables: number[];
   last_refreshed_at: string | null;
   error_message: string;
   created_at: string;
   updated_at: string;
   fields_count: number;
   available_document_columns: DocumentColumnOption[];
+  available_external_tables: ExternalTableSummary[];
 }
 
 export interface CollectionViewPreview {
@@ -452,12 +462,14 @@ export const collectionViewsApi = {
     description?: string;
     include_fields?: number[];
     include_document_columns?: string[];
+    include_external_tables?: number[];
   }) => apiClient.post<CollectionView>('/api/collection-views/', data),
   update: (id: number, data: {
     name?: string;
     description?: string;
     include_fields?: number[];
     include_document_columns?: string[];
+    include_external_tables?: number[];
   }) => apiClient.patch<CollectionView>(`/api/collection-views/${id}/`, data),
   delete: (id: number) => apiClient.delete(`/api/collection-views/${id}/`),
   activate: (id: number) =>
@@ -470,4 +482,101 @@ export const collectionViewsApi = {
     apiClient.post<CollectionViewActionResult>(`/api/collection-views/${id}/sync-data/`),
   preview: (id: number) =>
     apiClient.get<CollectionViewPreview>(`/api/collection-views/${id}/preview/`),
+};
+
+// External Table types
+export interface ExternalTableColumn {
+  id: number;
+  external_table: number;
+  name: string;
+  sql_column_name: string;
+  data_type: 'text' | 'integer' | 'decimal' | 'boolean' | 'date' | 'datetime';
+  is_nullable: boolean;
+  display_order: number;
+}
+
+export interface ExternalTableTypeOption {
+  value: string;
+  label: string;
+}
+
+export interface ExternalTable {
+  id: number;
+  collection: number;
+  collection_name: string;
+  name: string;
+  sql_table_name: string;
+  description: string;
+  is_active: boolean;
+  error_message: string;
+  created_at: string;
+  updated_at: string;
+  columns: ExternalTableColumn[];
+  column_count: number;
+  available_types: ExternalTableTypeOption[];
+}
+
+export interface ExternalTableActionResult {
+  success: boolean;
+  message: string;
+  is_active?: boolean;
+  sql?: string;
+}
+
+export interface ExternalTablePreview {
+  create_sql: string;
+  drop_sql: string;
+  db_engine: string;
+}
+
+// External Table API functions
+export const externalTablesApi = {
+  list: (params?: { collection?: number; is_active?: boolean }) =>
+    apiClient.get<PaginatedResponse<ExternalTable>>('/api/external-tables/', { params }),
+  get: (id: number) => apiClient.get<ExternalTable>(`/api/external-tables/${id}/`),
+  create: (data: {
+    collection: number;
+    name: string;
+    description?: string;
+    columns?: Array<{
+      name: string;
+      data_type: string;
+      is_nullable?: boolean;
+      display_order?: number;
+    }>;
+  }) => apiClient.post<ExternalTable>('/api/external-tables/', data),
+  update: (id: number, data: {
+    name?: string;
+    description?: string;
+  }) => apiClient.patch<ExternalTable>(`/api/external-tables/${id}/`, data),
+  delete: (id: number) => apiClient.delete(`/api/external-tables/${id}/`),
+  activate: (id: number) =>
+    apiClient.post<ExternalTableActionResult>(`/api/external-tables/${id}/activate/`),
+  deactivate: (id: number) =>
+    apiClient.post<ExternalTableActionResult>(`/api/external-tables/${id}/deactivate/`),
+  rebuild: (id: number) =>
+    apiClient.post<ExternalTableActionResult>(`/api/external-tables/${id}/rebuild/`),
+  preview: (id: number) =>
+    apiClient.get<ExternalTablePreview>(`/api/external-tables/${id}/preview/`),
+};
+
+// External Table Column API functions
+export const externalTableColumnsApi = {
+  list: (params?: { external_table?: number }) =>
+    apiClient.get<PaginatedResponse<ExternalTableColumn>>('/api/external-table-columns/', { params }),
+  get: (id: number) => apiClient.get<ExternalTableColumn>(`/api/external-table-columns/${id}/`),
+  create: (data: {
+    external_table: number;
+    name: string;
+    data_type: string;
+    is_nullable?: boolean;
+    display_order?: number;
+  }) => apiClient.post<ExternalTableColumn>('/api/external-table-columns/', data),
+  update: (id: number, data: {
+    name?: string;
+    data_type?: string;
+    is_nullable?: boolean;
+    display_order?: number;
+  }) => apiClient.patch<ExternalTableColumn>(`/api/external-table-columns/${id}/`, data),
+  delete: (id: number) => apiClient.delete(`/api/external-table-columns/${id}/`),
 };

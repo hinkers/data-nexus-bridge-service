@@ -8,6 +8,7 @@ import CollectionsPage from './pages/CollectionsPage';
 import CollectionViewsPage from './pages/CollectionViewsPage';
 import DashboardPage from './pages/DashboardPage';
 import DocumentsPage from './pages/DocumentsPage';
+import ExternalTablesPage from './pages/ExternalTablesPage';
 import LoginPage from './pages/LoginPage';
 import PluginsPage from './pages/PluginsPage';
 import SettingsPage from './pages/SettingsPage';
@@ -85,6 +86,16 @@ function App() {
                 <ProtectedRoute>
                   <DashboardLayout>
                     <CollectionViewsPage />
+                  </DashboardLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/dashboard/external-tables"
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout>
+                    <ExternalTablesPage />
                   </DashboardLayout>
                 </ProtectedRoute>
               }

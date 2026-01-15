@@ -12,7 +12,7 @@ from django.db import connection
 from django.utils import timezone
 
 if TYPE_CHECKING:
-    from affinda_bridge.models import CollectionView, FieldDefinition
+    from affinda_bridge.models import CollectionView, ExternalTable, FieldDefinition
 
 logger = logging.getLogger(__name__)
 
@@ -89,11 +89,26 @@ class SQLViewBuilder:
             ]
         return CollectionView.DEFAULT_DOCUMENT_COLUMNS
 
+    def get_external_tables(self) -> list["ExternalTable"]:
+        """Get the external tables to include in the view."""
+        from affinda_bridge.models import ExternalTable
+
+        if self.collection_view.include_external_tables:
+            return list(
+                ExternalTable.objects.filter(
+                    id__in=self.collection_view.include_external_tables,
+                    collection=self.collection,
+                    is_active=True,  # Only include active tables
+                ).prefetch_related("columns")
+            )
+        return []
+
     def build_create_sql(self) -> str:
         """Build the CREATE VIEW SQL statement."""
         view_name = self._quote_identifier(self.collection_view.sql_view_name)
         fields = self.get_fields()
         document_columns = self.get_document_columns()
+        external_tables = self.get_external_tables()
 
         # Build field columns using CASE WHEN for pivot
         field_columns = []
@@ -107,14 +122,49 @@ class SQLViewBuilder:
                 f"THEN dfv.value END) AS {quoted_col}"
             )
 
+        # Build external table columns
+        external_columns = []
+        external_group_by = []
+        for idx, ext_table in enumerate(external_tables):
+            alias = f"ext{idx}"
+            # Create a prefix from the table name for uniqueness
+            table_prefix = self._sanitize_column_name(ext_table.name)
+            for column in ext_table.columns.all():
+                col_alias = f"{table_prefix}_{column.sql_column_name}"
+                quoted_col_alias = self._quote_identifier(col_alias)
+                external_columns.append(
+                    f"{alias}.{self._quote_identifier(column.sql_column_name)} AS {quoted_col_alias}"
+                )
+                external_group_by.append(
+                    f"{alias}.{self._quote_identifier(column.sql_column_name)}"
+                )
+
         # Build the SELECT clause with selected document columns
-        columns = [f"d.{col}" for col in document_columns] + field_columns
+        columns = (
+            [f"d.{col}" for col in document_columns]
+            + field_columns
+            + external_columns
+        )
 
         columns_sql = ",\n    ".join(columns)
 
-        # Build GROUP BY clause with document columns
-        group_by_columns = ["d.id"] + [f"d.{col}" for col in document_columns]
+        # Build GROUP BY clause with document columns and external table columns
+        group_by_columns = (
+            ["d.id"]
+            + [f"d.{col}" for col in document_columns]
+            + external_group_by
+        )
         group_by_sql = ", ".join(group_by_columns)
+
+        # Build JOIN clauses for external tables
+        external_joins = []
+        for idx, ext_table in enumerate(external_tables):
+            alias = f"ext{idx}"
+            table_name = self._quote_identifier(ext_table.sql_table_name)
+            external_joins.append(
+                f"LEFT JOIN {table_name} {alias} ON {alias}.document_identifier = d.identifier"
+            )
+        external_joins_sql = "\n".join(external_joins)
 
         # Base query with joins
         base_query = f"""
@@ -122,6 +172,7 @@ SELECT
     {columns_sql}
 FROM affinda_bridge_document d
 LEFT JOIN affinda_bridge_documentfieldvalue dfv ON dfv.document_id = d.id
+{external_joins_sql}
 WHERE d.collection_id = {self.collection.pk}
 GROUP BY {group_by_sql}
 """

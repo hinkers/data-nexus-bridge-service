@@ -250,6 +250,11 @@ class CollectionView(models.Model):
         blank=True,
         help_text="List of document column names to include (empty = defaults)",
     )
+    include_external_tables = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of ExternalTable IDs to include in the view",
+    )
     last_sql = models.TextField(
         blank=True,
         help_text="Last SQL statement used to create the view",
@@ -295,3 +300,151 @@ class CollectionView(models.Model):
             safe_name = f"v_{safe_name}"
         # Truncate to 128 chars (safe for all databases)
         return safe_name[:128].lower()
+
+
+class ExternalTable(models.Model):
+    """
+    Represents a custom external table definition for a collection.
+    The actual database table is created/managed separately from the Django ORM.
+    Users can define columns and the app creates the table with a document_identifier
+    column for linking to documents.
+    """
+
+    collection = models.ForeignKey(
+        Collection,
+        on_delete=models.CASCADE,
+        related_name="external_tables",
+    )
+    name = models.CharField(
+        max_length=255,
+        help_text="User-friendly name for the external table",
+    )
+    sql_table_name = models.CharField(
+        max_length=128,
+        unique=True,
+        blank=True,
+        help_text="Actual SQL table name (auto-generated, sanitized)",
+    )
+    description = models.TextField(blank=True)
+    is_active = models.BooleanField(
+        default=False,
+        help_text="Whether the table currently exists in the database",
+    )
+    last_sql = models.TextField(
+        blank=True,
+        help_text="Last SQL statement used to create the table",
+    )
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+    error_message = models.TextField(
+        blank=True,
+        help_text="Last error message if table creation failed",
+    )
+
+    class Meta:
+        ordering = ["collection", "name"]
+        indexes = [
+            models.Index(fields=["collection", "is_active"]),
+            models.Index(fields=["sql_table_name"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["collection", "name"],
+                name="unique_collection_external_table_name",
+            )
+        ]
+
+    def __str__(self) -> str:
+        status = "Active" if self.is_active else "Inactive"
+        return f"{self.name} ({self.sql_table_name}) - {status}"
+
+    def save(self, *args, **kwargs):
+        if not self.sql_table_name:
+            self.sql_table_name = self.generate_safe_table_name()
+        super().save(*args, **kwargs)
+
+    def generate_safe_table_name(self) -> str:
+        """Generate a SQL-safe table name from collection and table name."""
+        import re
+
+        base = f"ext_{self.collection.identifier}_{self.name}"
+        safe_name = re.sub(r"[^a-zA-Z0-9_]", "_", base)
+        if safe_name[0].isdigit():
+            safe_name = f"t_{safe_name}"
+        return safe_name[:128].lower()
+
+
+class ExternalTableColumn(models.Model):
+    """
+    Represents a column definition within an external table.
+    """
+
+    # Supported column types
+    TYPE_TEXT = "text"
+    TYPE_INTEGER = "integer"
+    TYPE_DECIMAL = "decimal"
+    TYPE_BOOLEAN = "boolean"
+    TYPE_DATE = "date"
+    TYPE_DATETIME = "datetime"
+    TYPE_CHOICES = [
+        (TYPE_TEXT, "Text"),
+        (TYPE_INTEGER, "Integer"),
+        (TYPE_DECIMAL, "Decimal"),
+        (TYPE_BOOLEAN, "Boolean"),
+        (TYPE_DATE, "Date"),
+        (TYPE_DATETIME, "DateTime"),
+    ]
+
+    external_table = models.ForeignKey(
+        ExternalTable,
+        on_delete=models.CASCADE,
+        related_name="columns",
+    )
+    name = models.CharField(
+        max_length=255,
+        help_text="User-friendly column name",
+    )
+    sql_column_name = models.CharField(
+        max_length=63,
+        blank=True,
+        help_text="Actual SQL column name (auto-generated, sanitized)",
+    )
+    data_type = models.CharField(
+        max_length=32,
+        choices=TYPE_CHOICES,
+        default=TYPE_TEXT,
+    )
+    is_nullable = models.BooleanField(
+        default=True,
+        help_text="Whether the column allows NULL values",
+    )
+    display_order = models.PositiveIntegerField(
+        default=0,
+        help_text="Order in which columns are displayed",
+    )
+
+    class Meta:
+        ordering = ["external_table", "display_order", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["external_table", "name"],
+                name="unique_external_table_column_name",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.external_table.name}.{self.name} ({self.data_type})"
+
+    def save(self, *args, **kwargs):
+        if not self.sql_column_name:
+            self.sql_column_name = self.generate_safe_column_name()
+        super().save(*args, **kwargs)
+
+    def generate_safe_column_name(self) -> str:
+        """Generate a SQL-safe column name."""
+        import re
+
+        safe_name = re.sub(r"[^a-zA-Z0-9_]", "_", self.name)
+        if safe_name[0].isdigit():
+            safe_name = f"c_{safe_name}"
+        return safe_name[:63].lower()

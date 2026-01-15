@@ -6,6 +6,8 @@ from affinda_bridge.models import (
     DataPoint,
     Document,
     DocumentFieldValue,
+    ExternalTable,
+    ExternalTableColumn,
     FieldDefinition,
     SyncHistory,
     Workspace,
@@ -111,7 +113,7 @@ class CollectionViewAdmin(admin.ModelAdmin):
 
     fieldsets = (
         ('Basic Information', {
-            'fields': ('collection', 'name', 'description', 'include_fields')
+            'fields': ('collection', 'name', 'description', 'include_fields', 'include_document_columns', 'include_external_tables')
         }),
         ('View Status', {
             'fields': ('sql_view_name', 'is_active', 'last_refreshed_at', 'error_message')
@@ -125,3 +127,55 @@ class CollectionViewAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
     )
+
+
+class ExternalTableColumnInline(admin.TabularInline):
+    model = ExternalTableColumn
+    extra = 0
+    readonly_fields = ['sql_column_name']
+    ordering = ['display_order', 'name']
+
+
+@admin.register(ExternalTable)
+class ExternalTableAdmin(admin.ModelAdmin):
+    list_display = ['id', 'name', 'collection', 'sql_table_name', 'is_active', 'column_count', 'created_at']
+    search_fields = ['name', 'sql_table_name', 'description']
+    list_filter = ['is_active', 'collection', 'created_at']
+    ordering = ['collection', 'name']
+    raw_id_fields = ['collection']
+    readonly_fields = [
+        'sql_table_name', 'is_active', 'last_sql',
+        'error_message', 'created_at', 'updated_at'
+    ]
+    inlines = [ExternalTableColumnInline]
+
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('collection', 'name', 'description')
+        }),
+        ('Table Status', {
+            'fields': ('sql_table_name', 'is_active', 'error_message')
+        }),
+        ('SQL', {
+            'fields': ('last_sql',),
+            'classes': ('collapse',)
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def column_count(self, obj):
+        return obj.columns.count()
+    column_count.short_description = 'Columns'
+
+
+@admin.register(ExternalTableColumn)
+class ExternalTableColumnAdmin(admin.ModelAdmin):
+    list_display = ['id', 'name', 'external_table', 'sql_column_name', 'data_type', 'is_nullable', 'display_order']
+    search_fields = ['name', 'sql_column_name', 'external_table__name']
+    list_filter = ['data_type', 'is_nullable', 'external_table__collection']
+    ordering = ['external_table', 'display_order', 'name']
+    raw_id_fields = ['external_table']
+    readonly_fields = ['sql_column_name']

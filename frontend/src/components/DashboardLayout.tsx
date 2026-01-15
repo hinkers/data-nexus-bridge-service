@@ -24,6 +24,7 @@ function DashboardLayout({ children }: DashboardLayoutProps) {
     { path: '/dashboard/collections', label: 'Collections', icon: '📑' },
     { path: '/dashboard/documents', label: 'Documents', icon: '📄' },
     { path: '/dashboard/views', label: 'Views', icon: '📋' },
+    { path: '/dashboard/external-tables', label: 'External Tables', icon: '🗃️' },
     { path: '/dashboard/plugins', label: 'Plugins', icon: '🔌' },
     { path: '/dashboard/settings', label: 'Settings', icon: '⚙️' },
   ];

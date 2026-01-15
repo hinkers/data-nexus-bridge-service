@@ -13,6 +13,8 @@ router.register(r"documents", api_views.DocumentViewSet, basename="document")
 router.register(r"sync-history", api_views.SyncHistoryViewSet, basename="sync-history")
 router.register(r"collection-views", api_views.CollectionViewViewSet, basename="collection-view")
 router.register(r"document-field-values", api_views.DocumentFieldValueViewSet, basename="document-field-value")
+router.register(r"external-tables", api_views.ExternalTableViewSet, basename="external-table")
+router.register(r"external-table-columns", api_views.ExternalTableColumnViewSet, basename="external-table-column")
 
 urlpatterns = [
     # Authentication endpoints

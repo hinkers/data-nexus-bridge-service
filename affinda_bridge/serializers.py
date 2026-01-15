@@ -6,6 +6,8 @@ from affinda_bridge.models import (
     DataPoint,
     Document,
     DocumentFieldValue,
+    ExternalTable,
+    ExternalTableColumn,
     FieldDefinition,
     SyncHistory,
     Workspace,
@@ -184,6 +186,7 @@ class CollectionViewSerializer(serializers.ModelSerializer):
     collection_name = serializers.CharField(source="collection.name", read_only=True)
     fields_count = serializers.SerializerMethodField()
     available_document_columns = serializers.SerializerMethodField()
+    available_external_tables = serializers.SerializerMethodField()
 
     class Meta:
         model = CollectionView
@@ -197,12 +200,14 @@ class CollectionViewSerializer(serializers.ModelSerializer):
             "is_active",
             "include_fields",
             "include_document_columns",
+            "include_external_tables",
             "last_refreshed_at",
             "error_message",
             "created_at",
             "updated_at",
             "fields_count",
             "available_document_columns",
+            "available_external_tables",
         ]
         read_only_fields = [
             "id",
@@ -214,6 +219,7 @@ class CollectionViewSerializer(serializers.ModelSerializer):
             "updated_at",
             "fields_count",
             "available_document_columns",
+            "available_external_tables",
         ]
 
     def get_fields_count(self, obj: CollectionView) -> int:
@@ -225,6 +231,19 @@ class CollectionViewSerializer(serializers.ModelSerializer):
         return [
             {"name": col[0], "label": col[1]}
             for col in CollectionView.DOCUMENT_COLUMNS
+        ]
+
+    def get_available_external_tables(self, obj: CollectionView) -> list[dict]:
+        """Get external tables available for this collection."""
+        return [
+            {
+                "id": et.id,
+                "name": et.name,
+                "sql_table_name": et.sql_table_name,
+                "is_active": et.is_active,
+                "column_count": et.columns.count(),
+            }
+            for et in ExternalTable.objects.filter(collection=obj.collection)
         ]
 
 
@@ -239,6 +258,7 @@ class CollectionViewCreateSerializer(serializers.ModelSerializer):
             "description",
             "include_fields",
             "include_document_columns",
+            "include_external_tables",
         ]
 
     def validate_name(self, value):
@@ -257,3 +277,99 @@ class CollectionViewCreateSerializer(serializers.ModelSerializer):
                     f"Invalid document columns: {', '.join(invalid)}"
                 )
         return value
+
+
+# External Table Serializers
+
+
+class ExternalTableColumnSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExternalTableColumn
+        fields = [
+            "id",
+            "external_table",
+            "name",
+            "sql_column_name",
+            "data_type",
+            "is_nullable",
+            "display_order",
+        ]
+        read_only_fields = ["id", "sql_column_name"]
+
+
+class ExternalTableColumnCreateSerializer(serializers.ModelSerializer):
+    """For inline column creation when creating an external table."""
+
+    class Meta:
+        model = ExternalTableColumn
+        fields = ["name", "data_type", "is_nullable", "display_order"]
+
+
+class ExternalTableSerializer(serializers.ModelSerializer):
+    collection_name = serializers.CharField(source="collection.name", read_only=True)
+    columns = ExternalTableColumnSerializer(many=True, read_only=True)
+    column_count = serializers.SerializerMethodField()
+    available_types = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ExternalTable
+        fields = [
+            "id",
+            "collection",
+            "collection_name",
+            "name",
+            "sql_table_name",
+            "description",
+            "is_active",
+            "error_message",
+            "created_at",
+            "updated_at",
+            "columns",
+            "column_count",
+            "available_types",
+        ]
+        read_only_fields = [
+            "id",
+            "sql_table_name",
+            "is_active",
+            "error_message",
+            "created_at",
+            "updated_at",
+            "columns",
+            "column_count",
+            "available_types",
+        ]
+
+    def get_column_count(self, obj: ExternalTable) -> int:
+        return obj.columns.count()
+
+    def get_available_types(self, obj: ExternalTable) -> list[dict]:
+        return [
+            {"value": choice[0], "label": choice[1]}
+            for choice in ExternalTableColumn.TYPE_CHOICES
+        ]
+
+
+class ExternalTableCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating external tables with columns."""
+
+    columns = ExternalTableColumnCreateSerializer(many=True, required=False)
+
+    class Meta:
+        model = ExternalTable
+        fields = ["collection", "name", "description", "columns"]
+
+    def validate_name(self, value):
+        if not value or len(value) < 2:
+            raise serializers.ValidationError("Name must be at least 2 characters")
+        return value
+
+    def create(self, validated_data):
+        columns_data = validated_data.pop("columns", [])
+        external_table = ExternalTable.objects.create(**validated_data)
+
+        for idx, col_data in enumerate(columns_data):
+            col_data["display_order"] = col_data.get("display_order", idx)
+            ExternalTableColumn.objects.create(external_table=external_table, **col_data)
+
+        return external_table
