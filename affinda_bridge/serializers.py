@@ -10,8 +10,96 @@ from affinda_bridge.models import (
     ExternalTableColumn,
     FieldDefinition,
     SyncHistory,
+    SystemSettings,
     Workspace,
 )
+
+
+class AffindaSettingsSerializer(serializers.Serializer):
+    """Serializer for Affinda API configuration settings."""
+
+    api_key = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Affinda API key",
+    )
+    base_url = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="https://api.affinda.com",
+        help_text="Affinda API base URL",
+    )
+    organization = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Affinda organization identifier",
+    )
+    is_configured = serializers.BooleanField(read_only=True)
+    api_key_source = serializers.CharField(read_only=True)
+
+    def to_representation(self, instance):
+        """Get current settings from database and environment."""
+        import os
+
+        # Check database first, then environment
+        db_api_key = SystemSettings.get_value(SystemSettings.SETTING_AFFINDA_API_KEY)
+        env_api_key = os.environ.get("AFFINDA_API_KEY", "")
+
+        db_base_url = SystemSettings.get_value(SystemSettings.SETTING_AFFINDA_BASE_URL)
+        env_base_url = os.environ.get("AFFINDA_BASE_URL", "https://api.affinda.com")
+
+        db_organization = SystemSettings.get_value(SystemSettings.SETTING_AFFINDA_ORGANIZATION)
+        env_organization = os.environ.get("AFFINDA_ORGANIZATION", "")
+
+        # Determine which source is being used
+        if db_api_key:
+            api_key_source = "database"
+            api_key = db_api_key
+        elif env_api_key:
+            api_key_source = "environment"
+            api_key = env_api_key
+        else:
+            api_key_source = "not_set"
+            api_key = ""
+
+        # Mask the API key for display (show first 8 and last 4 chars)
+        masked_key = ""
+        if api_key:
+            if len(api_key) > 12:
+                masked_key = api_key[:8] + "..." + api_key[-4:]
+            else:
+                masked_key = api_key[:4] + "..." if len(api_key) > 4 else "****"
+
+        return {
+            "api_key": masked_key,
+            "base_url": db_base_url or env_base_url,
+            "organization": db_organization or env_organization,
+            "is_configured": bool(api_key),
+            "api_key_source": api_key_source,
+        }
+
+    def save(self):
+        """Save settings to database."""
+        data = self.validated_data
+
+        if "api_key" in data and data["api_key"]:
+            SystemSettings.set_value(
+                SystemSettings.SETTING_AFFINDA_API_KEY,
+                data["api_key"],
+                encrypted=True,
+            )
+
+        if "base_url" in data:
+            SystemSettings.set_value(
+                SystemSettings.SETTING_AFFINDA_BASE_URL,
+                data["base_url"],
+            )
+
+        if "organization" in data:
+            SystemSettings.set_value(
+                SystemSettings.SETTING_AFFINDA_ORGANIZATION,
+                data["organization"],
+            )
 
 
 class WorkspaceSerializer(serializers.ModelSerializer):

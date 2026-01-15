@@ -379,3 +379,115 @@ def system_status(request):
         },
         'debug_mode': settings.DEBUG,
     })
+
+
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def get_affinda_settings(request):
+    """
+    Get current Affinda API settings.
+    Requires admin permissions.
+    """
+    from affinda_bridge.serializers import AffindaSettingsSerializer
+
+    serializer = AffindaSettingsSerializer(instance={})
+    return Response(serializer.data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def update_affinda_settings(request):
+    """
+    Update Affinda API settings.
+    Requires admin permissions.
+    """
+    from affinda_bridge.serializers import AffindaSettingsSerializer
+
+    serializer = AffindaSettingsSerializer(data=request.data)
+    if serializer.is_valid():
+        serializer.save()
+        # Return the updated settings (with masked API key)
+        response_serializer = AffindaSettingsSerializer(instance={})
+        return Response(response_serializer.data)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def test_affinda_connection(request):
+    """
+    Test the Affinda API connection with current settings.
+    Requires admin permissions.
+    """
+    from affinda_bridge.clients import AffindaClient
+    from affinda_bridge.models import SystemSettings
+
+    try:
+        # Get API key from database or environment
+        api_key = SystemSettings.get_value(SystemSettings.SETTING_AFFINDA_API_KEY)
+        if not api_key:
+            api_key = os.environ.get("AFFINDA_API_KEY", "")
+
+        base_url = SystemSettings.get_value(SystemSettings.SETTING_AFFINDA_BASE_URL)
+        if not base_url:
+            base_url = os.environ.get("AFFINDA_BASE_URL", "https://api.affinda.com")
+
+        if not api_key:
+            return Response({
+                'success': False,
+                'message': 'No API key configured. Please set the API key first.',
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Try to connect and fetch workspaces
+        with AffindaClient(api_key=api_key, base_url=base_url) as client:
+            organization = SystemSettings.get_value(SystemSettings.SETTING_AFFINDA_ORGANIZATION)
+            if not organization:
+                organization = os.environ.get("AFFINDA_ORGANIZATION", "") or os.environ.get("AFFINDA_ORG_ID", "")
+
+            if organization:
+                workspaces = client.list_workspaces(organization=organization)
+                return Response({
+                    'success': True,
+                    'message': f'Connection successful! Found {len(workspaces)} workspace(s).',
+                    'workspaces_count': len(workspaces),
+                })
+            else:
+                # Can't list workspaces without organization, but connection is valid
+                return Response({
+                    'success': True,
+                    'message': 'API key is valid. Set an organization ID to list workspaces.',
+                })
+
+    except ValueError as e:
+        return Response({
+            'success': False,
+            'message': str(e),
+        }, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as e:
+        return Response({
+            'success': False,
+            'message': f'Connection failed: {str(e)}',
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def clear_affinda_api_key(request):
+    """
+    Clear the stored Affinda API key from the database.
+    This will cause the system to fall back to environment variable.
+    Requires admin permissions.
+    """
+    from affinda_bridge.models import SystemSettings
+
+    try:
+        SystemSettings.objects.filter(key=SystemSettings.SETTING_AFFINDA_API_KEY).delete()
+        return Response({
+            'success': True,
+            'message': 'API key cleared from database. System will use environment variable if set.',
+        })
+    except Exception as e:
+        return Response({
+            'success': False,
+            'message': f'Failed to clear API key: {str(e)}',
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

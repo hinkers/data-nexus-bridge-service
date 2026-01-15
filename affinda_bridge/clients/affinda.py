@@ -5,6 +5,31 @@ from affinda import AffindaAPI
 from azure.core.credentials import AzureKeyCredential
 
 
+def get_api_key_from_settings() -> str:
+    """Get the Affinda API key from database settings or environment."""
+    try:
+        from affinda_bridge.models import SystemSettings
+        db_key = SystemSettings.get_value(SystemSettings.SETTING_AFFINDA_API_KEY)
+        if db_key:
+            return db_key
+    except Exception:
+        # Database might not be ready (e.g., during migrations)
+        pass
+    return os.environ.get("AFFINDA_API_KEY", "")
+
+
+def get_base_url_from_settings() -> str:
+    """Get the Affinda base URL from database settings or environment."""
+    try:
+        from affinda_bridge.models import SystemSettings
+        db_url = SystemSettings.get_value(SystemSettings.SETTING_AFFINDA_BASE_URL)
+        if db_url:
+            return db_url
+    except Exception:
+        pass
+    return os.environ.get("AFFINDA_BASE_URL", "https://api.affinda.com")
+
+
 class AffindaClient:
     """
     Wrapper around the official Affinda Python SDK.
@@ -16,11 +41,12 @@ class AffindaClient:
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
     ) -> None:
-        token = api_key or os.environ.get("AFFINDA_API_KEY", "")
+        # Priority: explicit argument > database setting > environment variable
+        token = api_key or get_api_key_from_settings()
         if not token:
-            raise ValueError("AFFINDA_API_KEY is required")
+            raise ValueError("AFFINDA_API_KEY is required. Set it in Settings or as an environment variable.")
 
-        base = base_url or os.environ.get("AFFINDA_BASE_URL", "https://api.affinda.com")
+        base = base_url or get_base_url_from_settings()
 
         credential = AzureKeyCredential(token)
         self._client = AffindaAPI(

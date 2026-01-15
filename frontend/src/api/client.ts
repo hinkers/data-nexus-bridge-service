@@ -394,12 +394,38 @@ export interface SystemStatus {
   debug_mode: boolean;
 }
 
+// Affinda Settings types
+export interface AffindaSettings {
+  api_key: string;
+  base_url: string;
+  organization: string;
+  is_configured: boolean;
+  api_key_source: 'database' | 'environment' | 'not_set';
+}
+
+export interface AffindaTestResult {
+  success: boolean;
+  message: string;
+  workspaces_count?: number;
+}
+
+export interface AffindaClearResult {
+  success: boolean;
+  message: string;
+}
+
 // System API functions
 export const systemApi = {
   getVersion: () => apiClient.get<VersionInfo>('/api/system/version/'),
   getStatus: () => apiClient.get<SystemStatus>('/api/system/status/'),
   checkUpdates: () => apiClient.get<UpdateCheckResult>('/api/system/updates/check/'),
   applyUpdates: () => apiClient.post<UpdateApplyResult>('/api/system/updates/apply/'),
+  // Affinda settings
+  getAffindaSettings: () => apiClient.get<AffindaSettings>('/api/system/affinda/'),
+  updateAffindaSettings: (data: { api_key?: string; base_url?: string; organization?: string }) =>
+    apiClient.post<AffindaSettings>('/api/system/affinda/update/', data),
+  testAffindaConnection: () => apiClient.post<AffindaTestResult>('/api/system/affinda/test/'),
+  clearAffindaApiKey: () => apiClient.post<AffindaClearResult>('/api/system/affinda/clear/'),
 };
 
 // Collection View types

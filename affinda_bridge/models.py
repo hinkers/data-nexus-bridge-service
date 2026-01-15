@@ -2,6 +2,50 @@ from django.db import models
 from django.utils import timezone
 
 
+class SystemSettings(models.Model):
+    """
+    Singleton model for storing system-wide configuration settings.
+    Uses a key-value pattern for flexibility.
+    """
+
+    SETTING_AFFINDA_API_KEY = "affinda_api_key"
+    SETTING_AFFINDA_BASE_URL = "affinda_base_url"
+    SETTING_AFFINDA_ORGANIZATION = "affinda_organization"
+
+    key = models.CharField(max_length=64, unique=True, primary_key=True)
+    value = models.TextField(blank=True)
+    encrypted = models.BooleanField(
+        default=False,
+        help_text="Whether the value is stored encrypted (for sensitive data)",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "System Setting"
+        verbose_name_plural = "System Settings"
+
+    def __str__(self) -> str:
+        return f"{self.key}"
+
+    @classmethod
+    def get_value(cls, key: str, default: str = "") -> str:
+        """Get a setting value by key, returning default if not found."""
+        try:
+            setting = cls.objects.get(key=key)
+            return setting.value
+        except cls.DoesNotExist:
+            return default
+
+    @classmethod
+    def set_value(cls, key: str, value: str, encrypted: bool = False) -> "SystemSettings":
+        """Set a setting value, creating or updating as needed."""
+        setting, _ = cls.objects.update_or_create(
+            key=key,
+            defaults={"value": value, "encrypted": encrypted},
+        )
+        return setting
+
+
 class Workspace(models.Model):
     identifier = models.CharField(max_length=64, unique=True)
     name = models.CharField(max_length=255, blank=True)

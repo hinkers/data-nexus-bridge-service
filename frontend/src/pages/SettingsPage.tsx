@@ -1,10 +1,17 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { systemApi, type VersionInfo, type UpdateCheckResult, type SystemStatus } from '../api/client';
+import { systemApi, type AffindaSettings } from '../api/client';
 
 function SettingsPage() {
   const queryClient = useQueryClient();
   const [updateResult, setUpdateResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Affinda settings state
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [baseUrlInput, setBaseUrlInput] = useState('');
+  const [organizationInput, setOrganizationInput] = useState('');
+  const [showApiKeyInput, setShowApiKeyInput] = useState(false);
+  const [affindaResult, setAffindaResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // Queries
   const { data: versionInfo, isLoading: loadingVersion } = useQuery({
@@ -38,7 +45,68 @@ function SettingsPage() {
     enabled: false,
   });
 
+  // Affinda settings query
+  const { data: affindaSettings, isLoading: loadingAffindaSettings } = useQuery({
+    queryKey: ['system', 'affinda'],
+    queryFn: async () => {
+      const response = await systemApi.getAffindaSettings();
+      return response.data;
+    },
+  });
+
   // Mutations
+  const updateAffindaSettingsMutation = useMutation({
+    mutationFn: async (data: { api_key?: string; base_url?: string; organization?: string }) => {
+      const response = await systemApi.updateAffindaSettings(data);
+      return response.data;
+    },
+    onSuccess: () => {
+      setAffindaResult({ success: true, message: 'Settings saved successfully!' });
+      setShowApiKeyInput(false);
+      setApiKeyInput('');
+      queryClient.invalidateQueries({ queryKey: ['system', 'affinda'] });
+    },
+    onError: (error: any) => {
+      setAffindaResult({
+        success: false,
+        message: error.response?.data?.detail || error.message || 'Failed to save settings',
+      });
+    },
+  });
+
+  const testAffindaConnectionMutation = useMutation({
+    mutationFn: async () => {
+      const response = await systemApi.testAffindaConnection();
+      return response.data;
+    },
+    onSuccess: (data) => {
+      setAffindaResult({ success: data.success, message: data.message });
+    },
+    onError: (error: any) => {
+      setAffindaResult({
+        success: false,
+        message: error.response?.data?.message || error.message || 'Connection test failed',
+      });
+    },
+  });
+
+  const clearAffindaApiKeyMutation = useMutation({
+    mutationFn: async () => {
+      const response = await systemApi.clearAffindaApiKey();
+      return response.data;
+    },
+    onSuccess: (data) => {
+      setAffindaResult({ success: data.success, message: data.message });
+      queryClient.invalidateQueries({ queryKey: ['system', 'affinda'] });
+    },
+    onError: (error: any) => {
+      setAffindaResult({
+        success: false,
+        message: error.response?.data?.message || error.message || 'Failed to clear API key',
+      });
+    },
+  });
+
   const applyUpdatesMutation = useMutation({
     mutationFn: async () => {
       const response = await systemApi.applyUpdates();
@@ -84,6 +152,31 @@ function SettingsPage() {
     if (engine.includes('postgresql')) return 'PostgreSQL';
     if (engine.includes('mysql')) return 'MySQL';
     return engine;
+  };
+
+  const handleSaveAffindaSettings = () => {
+    const data: { api_key?: string; base_url?: string; organization?: string } = {};
+    if (apiKeyInput) data.api_key = apiKeyInput;
+    if (baseUrlInput) data.base_url = baseUrlInput;
+    if (organizationInput) data.organization = organizationInput;
+
+    if (Object.keys(data).length === 0) {
+      setAffindaResult({ success: false, message: 'No changes to save' });
+      return;
+    }
+
+    updateAffindaSettingsMutation.mutate(data);
+  };
+
+  const getApiKeySourceBadge = (source: AffindaSettings['api_key_source']) => {
+    switch (source) {
+      case 'database':
+        return <span className="px-2 py-0.5 text-xs rounded-full bg-purple-100 text-purple-700">Database</span>;
+      case 'environment':
+        return <span className="px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700">Environment Variable</span>;
+      case 'not_set':
+        return <span className="px-2 py-0.5 text-xs rounded-full bg-red-100 text-red-700">Not Set</span>;
+    }
   };
 
   return (
@@ -219,6 +312,174 @@ function SettingsPage() {
             </div>
           ) : (
             <div className="text-red-500">Failed to load system status</div>
+          )}
+        </div>
+
+        {/* Affinda API Settings */}
+        <div className="bg-white rounded-xl p-6 shadow-sm lg:col-span-2">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Affinda API Settings</h2>
+
+          {/* Result Message */}
+          {affindaResult && (
+            <div
+              className={`mb-4 p-4 rounded-lg ${
+                affindaResult.success
+                  ? 'bg-green-50 border border-green-200'
+                  : 'bg-red-50 border border-red-200'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <p className={affindaResult.success ? 'text-green-700' : 'text-red-700'}>
+                  {affindaResult.message}
+                </p>
+                <button
+                  onClick={() => setAffindaResult(null)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {loadingAffindaSettings ? (
+            <div className="text-gray-500">Loading settings...</div>
+          ) : affindaSettings ? (
+            <div className="space-y-6">
+              {/* Current Status */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="p-4 bg-gray-50 rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-gray-600">API Key Status</span>
+                    {getApiKeySourceBadge(affindaSettings.api_key_source)}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        affindaSettings.is_configured ? 'bg-green-500' : 'bg-red-500'
+                      }`}
+                    />
+                    <span className="text-gray-900">
+                      {affindaSettings.is_configured ? (
+                        <span className="font-mono text-sm">{affindaSettings.api_key}</span>
+                      ) : (
+                        'Not configured'
+                      )}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-gray-50 rounded-lg">
+                  <span className="text-sm font-medium text-gray-600 block mb-2">Base URL</span>
+                  <span className="font-mono text-sm text-gray-900">{affindaSettings.base_url}</span>
+                </div>
+
+                <div className="p-4 bg-gray-50 rounded-lg md:col-span-2">
+                  <span className="text-sm font-medium text-gray-600 block mb-2">Organization ID</span>
+                  <span className="text-gray-900">
+                    {affindaSettings.organization || (
+                      <span className="text-gray-400 italic">Not set (using AFFINDA_ORG_ID env var)</span>
+                    )}
+                  </span>
+                </div>
+              </div>
+
+              {/* Update Settings */}
+              <div className="border-t pt-6">
+                <h3 className="text-sm font-medium text-gray-700 mb-4">Update Settings</h3>
+
+                <div className="space-y-4">
+                  {/* API Key */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-600 mb-1">API Key</label>
+                    {showApiKeyInput ? (
+                      <div className="flex gap-2">
+                        <input
+                          type="password"
+                          value={apiKeyInput}
+                          onChange={(e) => setApiKeyInput(e.target.value)}
+                          placeholder="Enter your Affinda API key"
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                        />
+                        <button
+                          onClick={() => {
+                            setShowApiKeyInput(false);
+                            setApiKeyInput('');
+                          }}
+                          className="px-3 py-2 text-gray-500 hover:text-gray-700"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setShowApiKeyInput(true)}
+                          className="px-4 py-2 bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 transition"
+                        >
+                          {affindaSettings.is_configured ? 'Change API Key' : 'Set API Key'}
+                        </button>
+                        {affindaSettings.api_key_source === 'database' && (
+                          <button
+                            onClick={() => clearAffindaApiKeyMutation.mutate()}
+                            disabled={clearAffindaApiKeyMutation.isPending}
+                            className="px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition disabled:opacity-50"
+                          >
+                            {clearAffindaApiKeyMutation.isPending ? 'Clearing...' : 'Clear (Use Env Var)'}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Base URL */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-600 mb-1">Base URL</label>
+                    <input
+                      type="text"
+                      value={baseUrlInput}
+                      onChange={(e) => setBaseUrlInput(e.target.value)}
+                      placeholder={affindaSettings.base_url || 'https://api.affinda.com'}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  {/* Organization */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-600 mb-1">Organization ID</label>
+                    <input
+                      type="text"
+                      value={organizationInput}
+                      onChange={(e) => setOrganizationInput(e.target.value)}
+                      placeholder={affindaSettings.organization || 'Your Affinda organization ID'}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-3 mt-6">
+                  <button
+                    onClick={handleSaveAffindaSettings}
+                    disabled={updateAffindaSettingsMutation.isPending}
+                    className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
+                  >
+                    {updateAffindaSettingsMutation.isPending ? 'Saving...' : 'Save Changes'}
+                  </button>
+                  <button
+                    onClick={() => testAffindaConnectionMutation.mutate()}
+                    disabled={testAffindaConnectionMutation.isPending || !affindaSettings.is_configured}
+                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition disabled:opacity-50"
+                  >
+                    {testAffindaConnectionMutation.isPending ? 'Testing...' : 'Test Connection'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-red-500">Failed to load Affinda settings</div>
           )}
         </div>
 

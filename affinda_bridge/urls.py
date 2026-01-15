@@ -26,6 +26,11 @@ urlpatterns = [
     path("api/system/status/", system_views.system_status, name="system-status"),
     path("api/system/updates/check/", system_views.check_updates, name="system-check-updates"),
     path("api/system/updates/apply/", system_views.apply_updates, name="system-apply-updates"),
+    # Affinda API settings endpoints
+    path("api/system/affinda/", system_views.get_affinda_settings, name="system-affinda-settings"),
+    path("api/system/affinda/update/", system_views.update_affinda_settings, name="system-affinda-update"),
+    path("api/system/affinda/test/", system_views.test_affinda_connection, name="system-affinda-test"),
+    path("api/system/affinda/clear/", system_views.clear_affinda_api_key, name="system-affinda-clear"),
     # API endpoints
     path("api/", include(router.urls)),
 ]
