@@ -2,8 +2,10 @@ from django.contrib import admin
 
 from affinda_bridge.models import (
     Collection,
+    CollectionView,
     DataPoint,
     Document,
+    DocumentFieldValue,
     FieldDefinition,
     SyncHistory,
     Workspace,
@@ -79,3 +81,47 @@ class SyncHistoryAdmin(admin.ModelAdmin):
     ordering = ['-started_at']
     readonly_fields = ['started_at']
     date_hierarchy = 'started_at'
+
+
+@admin.register(DocumentFieldValue)
+class DocumentFieldValueAdmin(admin.ModelAdmin):
+    list_display = ['id', 'document', 'field_definition', 'value_preview']
+    search_fields = ['document__identifier', 'document__custom_identifier', 'value']
+    list_filter = ['field_definition__collection', 'field_definition']
+    raw_id_fields = ['document', 'field_definition']
+
+    def value_preview(self, obj):
+        if obj.value:
+            return obj.value[:50] + '...' if len(obj.value) > 50 else obj.value
+        return '-'
+    value_preview.short_description = 'Value'
+
+
+@admin.register(CollectionView)
+class CollectionViewAdmin(admin.ModelAdmin):
+    list_display = ['id', 'name', 'collection', 'sql_view_name', 'is_active', 'last_refreshed_at']
+    search_fields = ['name', 'sql_view_name', 'description']
+    list_filter = ['is_active', 'collection', 'created_at']
+    ordering = ['collection', 'name']
+    raw_id_fields = ['collection']
+    readonly_fields = [
+        'sql_view_name', 'is_active', 'last_sql', 'last_refreshed_at',
+        'error_message', 'created_at', 'updated_at'
+    ]
+
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('collection', 'name', 'description', 'include_fields')
+        }),
+        ('View Status', {
+            'fields': ('sql_view_name', 'is_active', 'last_refreshed_at', 'error_message')
+        }),
+        ('SQL', {
+            'fields': ('last_sql',),
+            'classes': ('collapse',)
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )

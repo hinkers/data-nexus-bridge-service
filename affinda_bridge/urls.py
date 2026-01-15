@@ -11,6 +11,8 @@ router.register(r"field-definitions", api_views.FieldDefinitionViewSet, basename
 router.register(r"data-points", api_views.DataPointViewSet, basename="data-point")
 router.register(r"documents", api_views.DocumentViewSet, basename="document")
 router.register(r"sync-history", api_views.SyncHistoryViewSet, basename="sync-history")
+router.register(r"collection-views", api_views.CollectionViewViewSet, basename="collection-view")
+router.register(r"document-field-values", api_views.DocumentFieldValueViewSet, basename="document-field-value")
 
 urlpatterns = [
     # Authentication endpoints

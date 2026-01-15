@@ -7,16 +7,29 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from affinda_bridge.clients import AffindaClient
-from affinda_bridge.models import Collection, DataPoint, Document, FieldDefinition, SyncHistory, Workspace
+from affinda_bridge.models import (
+    Collection,
+    CollectionView,
+    DataPoint,
+    Document,
+    DocumentFieldValue,
+    FieldDefinition,
+    SyncHistory,
+    Workspace,
+)
 from affinda_bridge.serializers import (
     CollectionSerializer,
+    CollectionViewCreateSerializer,
+    CollectionViewSerializer,
     DataPointSerializer,
+    DocumentFieldValueSerializer,
     DocumentListSerializer,
     DocumentSerializer,
     FieldDefinitionSerializer,
     SyncHistorySerializer,
     WorkspaceSerializer,
 )
+from affinda_bridge.services import SQLViewBuilder, sync_collection_field_values
 
 
 class WorkspaceViewSet(viewsets.ReadOnlyModelViewSet):
@@ -241,3 +254,148 @@ class SyncHistoryViewSet(viewsets.ReadOnlyModelViewSet):
                 latest_syncs[sync_type] = SyncHistorySerializer(latest).data
 
         return Response(latest_syncs)
+
+
+class CollectionViewViewSet(viewsets.ModelViewSet):
+    """
+    API endpoint for managing SQL views for collections.
+
+    Endpoints:
+    - GET /api/collection-views/ - List all views
+    - POST /api/collection-views/ - Create a new view definition
+    - GET /api/collection-views/{id}/ - Get view details
+    - PUT /api/collection-views/{id}/ - Update view definition
+    - DELETE /api/collection-views/{id}/ - Delete view definition and drop SQL view
+    - POST /api/collection-views/{id}/activate/ - Create SQL view in database
+    - POST /api/collection-views/{id}/deactivate/ - Drop SQL view from database
+    - POST /api/collection-views/{id}/refresh/ - Refresh (drop and recreate) SQL view
+    - POST /api/collection-views/{id}/sync-data/ - Sync DocumentFieldValues for collection
+    - GET /api/collection-views/{id}/preview/ - Preview the SQL that would be generated
+    """
+
+    queryset = CollectionView.objects.select_related("collection").all()
+    serializer_class = CollectionViewSerializer
+    filterset_fields = ["collection", "is_active"]
+
+    def get_serializer_class(self):
+        if self.action == "create":
+            return CollectionViewCreateSerializer
+        return CollectionViewSerializer
+
+    def perform_destroy(self, instance):
+        """Drop the SQL view before deleting the record."""
+        if instance.is_active:
+            builder = SQLViewBuilder(instance)
+            builder.drop_view()
+        instance.delete()
+
+    @action(detail=True, methods=["post"])
+    def activate(self, request, pk=None):
+        """Create the SQL view in the database."""
+        collection_view = self.get_object()
+        builder = SQLViewBuilder(collection_view)
+        success, message = builder.create_view()
+
+        return Response(
+            {
+                "success": success,
+                "message": message,
+                "is_active": collection_view.is_active,
+            },
+            status=status.HTTP_200_OK if success else status.HTTP_400_BAD_REQUEST,
+        )
+
+    @action(detail=True, methods=["post"])
+    def deactivate(self, request, pk=None):
+        """Drop the SQL view from the database."""
+        collection_view = self.get_object()
+        builder = SQLViewBuilder(collection_view)
+        success, message = builder.drop_view()
+
+        return Response(
+            {
+                "success": success,
+                "message": message,
+                "is_active": collection_view.is_active,
+            },
+            status=status.HTTP_200_OK if success else status.HTTP_400_BAD_REQUEST,
+        )
+
+    @action(detail=True, methods=["post"])
+    def refresh(self, request, pk=None):
+        """Refresh the SQL view (drop and recreate with current schema)."""
+        collection_view = self.get_object()
+        builder = SQLViewBuilder(collection_view)
+        success, message = builder.refresh_view()
+
+        return Response(
+            {
+                "success": success,
+                "message": message,
+                "is_active": collection_view.is_active,
+                "last_refreshed_at": collection_view.last_refreshed_at,
+            },
+            status=status.HTTP_200_OK if success else status.HTTP_400_BAD_REQUEST,
+        )
+
+    @action(detail=True, methods=["post"], url_path="sync-data")
+    def sync_data(self, request, pk=None):
+        """Sync DocumentFieldValues for the collection."""
+        collection_view = self.get_object()
+
+        try:
+            synced_count = sync_collection_field_values(collection_view.collection.id)
+            return Response(
+                {
+                    "success": True,
+                    "synced_count": synced_count,
+                    "message": f"Synced {synced_count} field values",
+                }
+            )
+        except Exception as e:
+            return Response(
+                {"success": False, "message": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @action(detail=True, methods=["get"])
+    def preview(self, request, pk=None):
+        """Preview the SQL that would be generated for this view."""
+        collection_view = self.get_object()
+        builder = SQLViewBuilder(collection_view)
+
+        try:
+            create_sql = builder.build_create_sql()
+            drop_sql = builder.build_drop_sql()
+            fields = builder.get_fields()
+
+            return Response(
+                {
+                    "create_sql": create_sql,
+                    "drop_sql": drop_sql,
+                    "fields": [
+                        {
+                            "id": f.id,
+                            "name": f.name,
+                            "slug": f.slug,
+                            "column_name": builder._sanitize_column_name(
+                                f.slug or f.name or f.datapoint_identifier
+                            ),
+                        }
+                        for f in fields
+                    ],
+                    "db_engine": builder.db_engine,
+                }
+            )
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class DocumentFieldValueViewSet(viewsets.ReadOnlyModelViewSet):
+    """API endpoint for viewing document field values."""
+
+    queryset = DocumentFieldValue.objects.select_related(
+        "document", "field_definition"
+    ).all()
+    serializer_class = DocumentFieldValueSerializer
+    filterset_fields = ["document", "field_definition"]

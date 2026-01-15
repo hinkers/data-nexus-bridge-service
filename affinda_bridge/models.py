@@ -72,6 +72,7 @@ class Document(models.Model):
     custom_identifier = models.CharField(max_length=255, blank=True)
     file_name = models.CharField(max_length=512, blank=True)
     file_url = models.URLField(max_length=1024, blank=True)
+    review_url = models.URLField(max_length=1024, blank=True, help_text="URL to review/edit the document in Affinda")
 
     workspace = models.ForeignKey(
         Workspace,
@@ -148,3 +149,117 @@ class SyncHistory(models.Model):
     def __str__(self) -> str:
         status = "Success" if self.success else "Failed"
         return f"{self.get_sync_type_display()} - {status} at {self.started_at}"
+
+
+class DocumentFieldValue(models.Model):
+    """
+    Normalized storage of document field values.
+    Extracts values from Document.data JSON into individual rows for SQL view creation.
+    """
+
+    document = models.ForeignKey(
+        Document,
+        on_delete=models.CASCADE,
+        related_name="field_values",
+    )
+    field_definition = models.ForeignKey(
+        FieldDefinition,
+        on_delete=models.CASCADE,
+        related_name="document_values",
+    )
+    value = models.TextField(blank=True, null=True)
+    raw_value = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["document", "field_definition"],
+                name="unique_document_field_value",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["document", "field_definition"]),
+            models.Index(fields=["field_definition"]),
+        ]
+
+    def __str__(self) -> str:
+        val_preview = self.value[:50] if self.value else "N/A"
+        return f"{self.document} - {self.field_definition.name}: {val_preview}"
+
+
+class CollectionView(models.Model):
+    """
+    Represents a SQL VIEW created for a collection.
+    Tracks view definitions and their current state in the database.
+    """
+
+    collection = models.ForeignKey(
+        Collection,
+        on_delete=models.CASCADE,
+        related_name="sql_views",
+    )
+    name = models.CharField(
+        max_length=255,
+        help_text="User-friendly name for the view",
+    )
+    sql_view_name = models.CharField(
+        max_length=128,
+        unique=True,
+        blank=True,
+        help_text="Actual SQL view name (auto-generated, sanitized)",
+    )
+    description = models.TextField(blank=True)
+    is_active = models.BooleanField(
+        default=False,
+        help_text="Whether the view currently exists in the database",
+    )
+    include_fields = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of field_definition IDs to include (empty = all)",
+    )
+    last_sql = models.TextField(
+        blank=True,
+        help_text="Last SQL statement used to create the view",
+    )
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+    last_refreshed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the view was last refreshed in the database",
+    )
+    error_message = models.TextField(
+        blank=True,
+        help_text="Last error message if view creation failed",
+    )
+
+    class Meta:
+        ordering = ["collection", "name"]
+        indexes = [
+            models.Index(fields=["collection", "is_active"]),
+            models.Index(fields=["sql_view_name"]),
+        ]
+
+    def __str__(self) -> str:
+        status = "Active" if self.is_active else "Inactive"
+        return f"{self.name} ({self.sql_view_name}) - {status}"
+
+    def save(self, *args, **kwargs):
+        if not self.sql_view_name:
+            self.sql_view_name = self.generate_safe_view_name()
+        super().save(*args, **kwargs)
+
+    def generate_safe_view_name(self) -> str:
+        """Generate a SQL-safe view name from the collection and view name."""
+        import re
+
+        # Start with collection identifier and view name
+        base = f"view_{self.collection.identifier}_{self.name}"
+        # Remove or replace unsafe characters
+        safe_name = re.sub(r"[^a-zA-Z0-9_]", "_", base)
+        # Ensure it doesn't start with a number
+        if safe_name[0].isdigit():
+            safe_name = f"v_{safe_name}"
+        # Truncate to 128 chars (safe for all databases)
+        return safe_name[:128].lower()

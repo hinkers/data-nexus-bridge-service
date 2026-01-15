@@ -5,6 +5,7 @@ import DashboardLayout from './components/DashboardLayout';
 import ProtectedRoute from './components/ProtectedRoute';
 import { AuthProvider } from './contexts/AuthContext';
 import CollectionsPage from './pages/CollectionsPage';
+import CollectionViewsPage from './pages/CollectionViewsPage';
 import DashboardPage from './pages/DashboardPage';
 import DocumentsPage from './pages/DocumentsPage';
 import LoginPage from './pages/LoginPage';
@@ -74,6 +75,16 @@ function App() {
                 <ProtectedRoute>
                   <DashboardLayout>
                     <PluginsPage />
+                  </DashboardLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/dashboard/views"
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout>
+                    <CollectionViewsPage />
                   </DashboardLayout>
                 </ProtectedRoute>
               }

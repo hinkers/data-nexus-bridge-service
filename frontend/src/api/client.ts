@@ -85,6 +85,7 @@ export interface Document {
   custom_identifier: string;
   file_name: string;
   file_url: string;
+  review_url: string;
   workspace: number;
   workspace_name: string;
   collection: number;
@@ -392,4 +393,63 @@ export const systemApi = {
   getStatus: () => apiClient.get<SystemStatus>('/api/system/status/'),
   checkUpdates: () => apiClient.get<UpdateCheckResult>('/api/system/updates/check/'),
   applyUpdates: () => apiClient.post<UpdateApplyResult>('/api/system/updates/apply/'),
+};
+
+// Collection View types
+export interface CollectionView {
+  id: number;
+  collection: number;
+  collection_name: string;
+  name: string;
+  sql_view_name: string;
+  description: string;
+  is_active: boolean;
+  include_fields: number[];
+  last_refreshed_at: string | null;
+  error_message: string;
+  created_at: string;
+  updated_at: string;
+  fields_count: number;
+}
+
+export interface CollectionViewPreview {
+  create_sql: string;
+  drop_sql: string;
+  fields: Array<{
+    id: number;
+    name: string;
+    slug: string;
+    column_name: string;
+  }>;
+  db_engine: string;
+}
+
+export interface CollectionViewActionResult {
+  success: boolean;
+  message: string;
+  is_active: boolean;
+  last_refreshed_at?: string;
+  synced_count?: number;
+}
+
+// Collection View API functions
+export const collectionViewsApi = {
+  list: (params?: { collection?: number; is_active?: boolean }) =>
+    apiClient.get<PaginatedResponse<CollectionView>>('/api/collection-views/', { params }),
+  get: (id: number) => apiClient.get<CollectionView>(`/api/collection-views/${id}/`),
+  create: (data: { collection: number; name: string; description?: string; include_fields?: number[] }) =>
+    apiClient.post<CollectionView>('/api/collection-views/', data),
+  update: (id: number, data: { name?: string; description?: string; include_fields?: number[] }) =>
+    apiClient.patch<CollectionView>(`/api/collection-views/${id}/`, data),
+  delete: (id: number) => apiClient.delete(`/api/collection-views/${id}/`),
+  activate: (id: number) =>
+    apiClient.post<CollectionViewActionResult>(`/api/collection-views/${id}/activate/`),
+  deactivate: (id: number) =>
+    apiClient.post<CollectionViewActionResult>(`/api/collection-views/${id}/deactivate/`),
+  refresh: (id: number) =>
+    apiClient.post<CollectionViewActionResult>(`/api/collection-views/${id}/refresh/`),
+  syncData: (id: number) =>
+    apiClient.post<CollectionViewActionResult>(`/api/collection-views/${id}/sync-data/`),
+  preview: (id: number) =>
+    apiClient.get<CollectionViewPreview>(`/api/collection-views/${id}/preview/`),
 };

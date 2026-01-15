@@ -2,8 +2,10 @@ from rest_framework import serializers
 
 from affinda_bridge.models import (
     Collection,
+    CollectionView,
     DataPoint,
     Document,
+    DocumentFieldValue,
     FieldDefinition,
     SyncHistory,
     Workspace,
@@ -87,6 +89,7 @@ class DocumentSerializer(serializers.ModelSerializer):
             "custom_identifier",
             "file_name",
             "file_url",
+            "review_url",
             "workspace",
             "workspace_name",
             "collection",
@@ -123,6 +126,7 @@ class DocumentListSerializer(serializers.ModelSerializer):
             "custom_identifier",
             "file_name",
             "file_url",
+            "review_url",
             "workspace",
             "workspace_name",
             "collection",
@@ -152,3 +156,82 @@ class SyncHistorySerializer(serializers.ModelSerializer):
             "error_message",
         ]
         read_only_fields = ["id", "started_at"]
+
+
+class DocumentFieldValueSerializer(serializers.ModelSerializer):
+    field_name = serializers.CharField(source="field_definition.name", read_only=True)
+    field_slug = serializers.CharField(source="field_definition.slug", read_only=True)
+    datapoint_identifier = serializers.CharField(
+        source="field_definition.datapoint_identifier", read_only=True
+    )
+
+    class Meta:
+        model = DocumentFieldValue
+        fields = [
+            "id",
+            "document",
+            "field_definition",
+            "field_name",
+            "field_slug",
+            "datapoint_identifier",
+            "value",
+            "raw_value",
+        ]
+        read_only_fields = ["id"]
+
+
+class CollectionViewSerializer(serializers.ModelSerializer):
+    collection_name = serializers.CharField(source="collection.name", read_only=True)
+    fields_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CollectionView
+        fields = [
+            "id",
+            "collection",
+            "collection_name",
+            "name",
+            "sql_view_name",
+            "description",
+            "is_active",
+            "include_fields",
+            "last_refreshed_at",
+            "error_message",
+            "created_at",
+            "updated_at",
+            "fields_count",
+        ]
+        read_only_fields = [
+            "id",
+            "sql_view_name",
+            "is_active",
+            "last_refreshed_at",
+            "error_message",
+            "created_at",
+            "updated_at",
+            "fields_count",
+        ]
+
+    def get_fields_count(self, obj: CollectionView) -> int:
+        if obj.include_fields:
+            return len(obj.include_fields)
+        return FieldDefinition.objects.filter(collection=obj.collection).count()
+
+
+class CollectionViewCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating a new CollectionView."""
+
+    class Meta:
+        model = CollectionView
+        fields = [
+            "collection",
+            "name",
+            "description",
+            "include_fields",
+        ]
+
+    def validate_name(self, value):
+        """Ensure name is suitable for SQL view name generation."""
+        if not value or len(value) < 2:
+            raise serializers.ValidationError("Name must be at least 2 characters")
+        return value
