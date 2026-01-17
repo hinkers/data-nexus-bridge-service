@@ -12,6 +12,7 @@ import ExternalTablesPage from './pages/ExternalTablesPage';
 import LoginPage from './pages/LoginPage';
 import PluginsPage from './pages/PluginsPage';
 import SettingsPage from './pages/SettingsPage';
+import SyncSchedulesPage from './pages/SyncSchedulesPage';
 import WorkspacesPage from './pages/WorkspacesPage';
 
 const queryClient = new QueryClient({
@@ -106,6 +107,16 @@ function App() {
                 <ProtectedRoute>
                   <DashboardLayout>
                     <SettingsPage />
+                  </DashboardLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/dashboard/sync-schedules"
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout>
+                    <SyncSchedulesPage />
                   </DashboardLayout>
                 </ProtectedRoute>
               }

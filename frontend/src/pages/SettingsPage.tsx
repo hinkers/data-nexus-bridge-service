@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { systemApi, type AffindaSettings } from '../api/client';
+import { systemApi, webhooksApi, type AffindaSettings, type WebhookConfig } from '../api/client';
 
 function SettingsPage() {
   const queryClient = useQueryClient();
@@ -12,6 +12,11 @@ function SettingsPage() {
   const [organizationInput, setOrganizationInput] = useState('');
   const [showApiKeyInput, setShowApiKeyInput] = useState(false);
   const [affindaResult, setAffindaResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Webhook settings state
+  const [webhookResult, setWebhookResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [pendingWebhookEnabled, setPendingWebhookEnabled] = useState<boolean | null>(null);
+  const [pendingEnabledEvents, setPendingEnabledEvents] = useState<string[] | null>(null);
 
   // Queries
   const { data: versionInfo, isLoading: loadingVersion } = useQuery({
@@ -50,6 +55,15 @@ function SettingsPage() {
     queryKey: ['system', 'affinda'],
     queryFn: async () => {
       const response = await systemApi.getAffindaSettings();
+      return response.data;
+    },
+  });
+
+  // Webhook settings query
+  const { data: webhookConfig, isLoading: loadingWebhookConfig } = useQuery({
+    queryKey: ['system', 'webhooks'],
+    queryFn: async () => {
+      const response = await webhooksApi.getConfig();
       return response.data;
     },
   });
@@ -103,6 +117,43 @@ function SettingsPage() {
       setAffindaResult({
         success: false,
         message: error.response?.data?.message || error.message || 'Failed to clear API key',
+      });
+    },
+  });
+
+  // Webhook mutations
+  const updateWebhookConfigMutation = useMutation({
+    mutationFn: async (data: { enabled?: boolean; enabled_events?: string[] }) => {
+      const response = await webhooksApi.updateConfig(data);
+      return response.data;
+    },
+    onSuccess: () => {
+      setWebhookResult({ success: true, message: 'Webhook settings saved successfully!' });
+      setPendingWebhookEnabled(null);
+      setPendingEnabledEvents(null);
+      queryClient.invalidateQueries({ queryKey: ['system', 'webhooks'] });
+    },
+    onError: (error: any) => {
+      setWebhookResult({
+        success: false,
+        message: error.response?.data?.detail || error.message || 'Failed to save webhook settings',
+      });
+    },
+  });
+
+  const regenerateWebhookTokenMutation = useMutation({
+    mutationFn: async () => {
+      const response = await webhooksApi.regenerateToken();
+      return response.data;
+    },
+    onSuccess: () => {
+      setWebhookResult({ success: true, message: 'Webhook token regenerated. Make sure to update your Affinda webhook settings.' });
+      queryClient.invalidateQueries({ queryKey: ['system', 'webhooks'] });
+    },
+    onError: (error: any) => {
+      setWebhookResult({
+        success: false,
+        message: error.response?.data?.detail || error.message || 'Failed to regenerate token',
       });
     },
   });
@@ -176,6 +227,49 @@ function SettingsPage() {
         return <span className="px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700">Environment Variable</span>;
       case 'not_set':
         return <span className="px-2 py-0.5 text-xs rounded-full bg-red-100 text-red-700">Not Set</span>;
+    }
+  };
+
+  // Get effective webhook enabled state (pending or actual)
+  const effectiveWebhookEnabled = pendingWebhookEnabled ?? webhookConfig?.enabled ?? false;
+
+  // Get effective enabled events (pending or actual)
+  const effectiveEnabledEvents = pendingEnabledEvents ?? webhookConfig?.enabled_events ?? [];
+
+  const handleWebhookEnabledChange = (enabled: boolean) => {
+    setPendingWebhookEnabled(enabled);
+  };
+
+  const handleEventToggle = (eventType: string) => {
+    const currentEvents = effectiveEnabledEvents;
+    if (currentEvents.includes(eventType)) {
+      setPendingEnabledEvents(currentEvents.filter(e => e !== eventType));
+    } else {
+      setPendingEnabledEvents([...currentEvents, eventType]);
+    }
+  };
+
+  const handleSaveWebhookSettings = () => {
+    const data: { enabled?: boolean; enabled_events?: string[] } = {};
+    if (pendingWebhookEnabled !== null) data.enabled = pendingWebhookEnabled;
+    if (pendingEnabledEvents !== null) data.enabled_events = pendingEnabledEvents;
+
+    if (Object.keys(data).length === 0) {
+      setWebhookResult({ success: false, message: 'No changes to save' });
+      return;
+    }
+
+    updateWebhookConfigMutation.mutate(data);
+  };
+
+  const hasWebhookChanges = pendingWebhookEnabled !== null || pendingEnabledEvents !== null;
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setWebhookResult({ success: true, message: 'Copied to clipboard!' });
+    } catch {
+      setWebhookResult({ success: false, message: 'Failed to copy to clipboard' });
     }
   };
 
@@ -480,6 +574,173 @@ function SettingsPage() {
             </div>
           ) : (
             <div className="text-red-500">Failed to load Affinda settings</div>
+          )}
+        </div>
+
+        {/* Webhook Configuration */}
+        <div className="bg-white rounded-xl p-6 shadow-sm lg:col-span-2">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Webhook Configuration</h2>
+
+          {/* Result Message */}
+          {webhookResult && (
+            <div
+              className={`mb-4 p-4 rounded-lg ${
+                webhookResult.success
+                  ? 'bg-green-50 border border-green-200'
+                  : 'bg-red-50 border border-red-200'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <p className={webhookResult.success ? 'text-green-700' : 'text-red-700'}>
+                  {webhookResult.message}
+                </p>
+                <button
+                  onClick={() => setWebhookResult(null)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {loadingWebhookConfig ? (
+            <div className="text-gray-500">Loading webhook settings...</div>
+          ) : webhookConfig ? (
+            <div className="space-y-6">
+              {/* Help Text */}
+              <div className="p-4 bg-blue-50 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <svg className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div className="text-sm text-blue-800">
+                    <p className="font-medium mb-1">How to configure webhooks:</p>
+                    <ol className="list-decimal list-inside space-y-1 text-blue-700">
+                      <li>Copy the webhook URL below</li>
+                      <li>Go to your Affinda workspace settings</li>
+                      <li>Navigate to the Webhooks section</li>
+                      <li>Add a new webhook and paste the URL</li>
+                      <li>Select the events you want to trigger the webhook</li>
+                    </ol>
+                  </div>
+                </div>
+              </div>
+
+              {/* Webhook URL */}
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-2">Webhook URL</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={webhookConfig.webhook_url}
+                    className="flex-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg font-mono text-sm"
+                  />
+                  <button
+                    onClick={() => copyToClipboard(webhookConfig.webhook_url)}
+                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={() => regenerateWebhookTokenMutation.mutate()}
+                    disabled={regenerateWebhookTokenMutation.isPending}
+                    className="px-4 py-2 bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200 transition disabled:opacity-50"
+                    title="Regenerate token (will invalidate old URL)"
+                  >
+                    {regenerateWebhookTokenMutation.isPending ? (
+                      <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                    ) : (
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  The regenerate button will create a new token and invalidate the old URL.
+                </p>
+              </div>
+
+              {/* Enable/Disable Toggle */}
+              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                <div>
+                  <span className="font-medium text-gray-900">Enable Webhooks</span>
+                  <p className="text-sm text-gray-500">When enabled, incoming webhooks will be processed</p>
+                </div>
+                <button
+                  onClick={() => handleWebhookEnabledChange(!effectiveWebhookEnabled)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    effectiveWebhookEnabled ? 'bg-purple-600' : 'bg-gray-300'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      effectiveWebhookEnabled ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* Event Types */}
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-3">Enabled Events</label>
+                <p className="text-sm text-gray-500 mb-3">
+                  Select which Affinda events should trigger document syncs
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {webhookConfig.available_events.map((event) => (
+                    <label
+                      key={event.event_type}
+                      className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={effectiveEnabledEvents.includes(event.event_type)}
+                        onChange={() => handleEventToggle(event.event_type)}
+                        className="mt-0.5 h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                      />
+                      <div>
+                        <span className="font-mono text-sm text-gray-900">{event.event_type}</span>
+                        <p className="text-xs text-gray-500 mt-0.5">{event.description}</p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Save Button */}
+              <div className="flex gap-3 pt-4 border-t">
+                <button
+                  onClick={handleSaveWebhookSettings}
+                  disabled={!hasWebhookChanges || updateWebhookConfigMutation.isPending}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {updateWebhookConfigMutation.isPending ? 'Saving...' : 'Save Changes'}
+                </button>
+                {hasWebhookChanges && (
+                  <button
+                    onClick={() => {
+                      setPendingWebhookEnabled(null);
+                      setPendingEnabledEvents(null);
+                    }}
+                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="text-red-500">Failed to load webhook settings</div>
           )}
         </div>
 

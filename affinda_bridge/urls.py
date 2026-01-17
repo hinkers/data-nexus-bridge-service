@@ -1,7 +1,7 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from affinda_bridge import api_views, auth_views, system_views
+from affinda_bridge import api_views, auth_views, system_views, webhook_views
 
 # Create a router and register our viewsets
 router = DefaultRouter()
@@ -15,6 +15,7 @@ router.register(r"collection-views", api_views.CollectionViewViewSet, basename="
 router.register(r"document-field-values", api_views.DocumentFieldValueViewSet, basename="document-field-value")
 router.register(r"external-tables", api_views.ExternalTableViewSet, basename="external-table")
 router.register(r"external-table-columns", api_views.ExternalTableColumnViewSet, basename="external-table-column")
+router.register(r"sync-schedules", api_views.SyncScheduleViewSet, basename="sync-schedule")
 
 urlpatterns = [
     # Authentication endpoints
@@ -31,6 +32,12 @@ urlpatterns = [
     path("api/system/affinda/update/", system_views.update_affinda_settings, name="system-affinda-update"),
     path("api/system/affinda/test/", system_views.test_affinda_connection, name="system-affinda-test"),
     path("api/system/affinda/clear/", system_views.clear_affinda_api_key, name="system-affinda-clear"),
+    # Webhook configuration endpoints
+    path("api/system/webhooks/", system_views.get_webhook_config, name="system-webhooks"),
+    path("api/system/webhooks/update/", system_views.update_webhook_config, name="system-webhooks-update"),
+    path("api/system/webhooks/regenerate-token/", system_views.regenerate_webhook_token, name="system-webhooks-regenerate"),
+    # Webhook receiver endpoint (unauthenticated, secured by token in URL)
+    path("api/webhooks/affinda/<str:secret_token>/", webhook_views.webhook_receiver, name="webhook-receiver"),
     # API endpoints
     path("api/", include(router.urls)),
 ]

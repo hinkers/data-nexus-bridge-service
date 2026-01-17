@@ -97,6 +97,7 @@ export interface Document {
   ready: boolean;
   validatable?: boolean;
   has_challenges?: boolean;
+  sync_enabled: boolean;
   created_dt: string;
   uploaded_dt?: string;
   last_updated_dt?: string;
@@ -109,11 +110,19 @@ export interface Document {
 export interface SyncHistory {
   id: number;
   sync_type: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  collection: number | null;
+  collection_name: string | null;
   started_at: string;
   completed_at: string | null;
   success: boolean;
   records_synced: number;
   error_message: string;
+  total_documents: number;
+  documents_created: number;
+  documents_updated: number;
+  documents_failed: number;
+  progress_percent: number;
 }
 
 export interface LatestSyncs {
@@ -136,12 +145,40 @@ export const workspacesApi = {
   sync: () => apiClient.post('/api/workspaces/sync/'),
 };
 
+export interface CollectionSyncResult {
+  success: boolean;
+  message: string;
+  sync_id: number;
+  collection_identifier: string;
+}
+
+export interface CollectionSyncStatus {
+  has_sync: boolean;
+  message?: string;
+  sync_id?: number;
+  sync_type?: string;
+  status?: 'pending' | 'in_progress' | 'completed' | 'failed';
+  started_at?: string;
+  completed_at?: string | null;
+  success?: boolean;
+  total_documents?: number;
+  documents_created?: number;
+  documents_updated?: number;
+  documents_failed?: number;
+  progress_percent?: number;
+  error_message?: string;
+}
+
 export const collectionsApi = {
   list: (params?: { workspace?: string }) =>
     apiClient.get<PaginatedResponse<Collection>>('/api/collections/', {
       params,
     }),
   get: (identifier: string) => apiClient.get<Collection>(`/api/collections/${identifier}/`),
+  fullSync: (identifier: string) =>
+    apiClient.post<CollectionSyncResult>(`/api/collections/${identifier}/full-sync/`),
+  getSyncStatus: (identifier: string) =>
+    apiClient.get<CollectionSyncStatus>(`/api/collections/${identifier}/sync-status/`),
 };
 
 export const fieldDefinitionsApi = {
@@ -162,11 +199,30 @@ export interface DocumentRefreshResult {
   document?: Document;
 }
 
+export interface DocumentToggleSyncResult {
+  success: boolean;
+  document_id: number;
+  sync_enabled: boolean;
+}
+
+export interface SelectiveSyncResult {
+  success: boolean;
+  message: string;
+  sync_id: number;
+  collection_id: number | null;
+}
+
 export const documentsApi = {
   list: (params?: { workspace?: string; collection?: string; state?: string; page?: number; search?: string }) =>
     apiClient.get<PaginatedResponse<Document>>('/api/documents/', { params }),
   get: (id: number) => apiClient.get<Document>(`/api/documents/${id}/`),
   refresh: (id: number) => apiClient.post<DocumentRefreshResult>(`/api/documents/${id}/refresh/`),
+  toggleSync: (id: number, syncEnabled?: boolean) =>
+    apiClient.patch<DocumentToggleSyncResult>(`/api/documents/${id}/toggle-sync/`,
+      syncEnabled !== undefined ? { sync_enabled: syncEnabled } : {}),
+  selectiveSync: (collectionId?: number) =>
+    apiClient.post<SelectiveSyncResult>('/api/documents/selective-sync/',
+      collectionId ? { collection_id: collectionId } : {}),
 };
 
 export const syncHistoryApi = {
@@ -612,4 +668,108 @@ export const externalTableColumnsApi = {
     display_order?: number;
   }) => apiClient.patch<ExternalTableColumn>(`/api/external-table-columns/${id}/`, data),
   delete: (id: number) => apiClient.delete(`/api/external-table-columns/${id}/`),
+};
+
+// Webhook Configuration types
+export interface WebhookEvent {
+  value: string;
+  label: string;
+}
+
+export interface WebhookConfig {
+  enabled: boolean;
+  webhook_url: string;
+  secret_token: string;
+  enabled_events: string[];
+  available_events: WebhookEvent[];
+}
+
+export interface WebhookRegenerateResult {
+  success: boolean;
+  message: string;
+  webhook_url: string;
+  secret_token: string;
+}
+
+// Webhook Configuration API functions
+export const webhooksApi = {
+  getConfig: () => apiClient.get<WebhookConfig>('/api/system/webhooks/'),
+  updateConfig: (data: { enabled?: boolean; enabled_events?: string[] }) =>
+    apiClient.post<WebhookConfig>('/api/system/webhooks/update/', data),
+  regenerateToken: () =>
+    apiClient.post<WebhookRegenerateResult>('/api/system/webhooks/regenerate-token/'),
+};
+
+// Sync Schedule types
+export interface SyncScheduleRun {
+  id: number;
+  schedule: number;
+  sync_history: number;
+  sync_history_status: string;
+  sync_history_success: boolean;
+  documents_synced: number;
+  triggered_by: 'scheduled' | 'manual';
+  started_at: string;
+  completed_at: string | null;
+}
+
+export interface SyncSchedule {
+  id: number;
+  name: string;
+  sync_type: 'full_collection' | 'selective';
+  collection: number | null;
+  collection_name: string | null;
+  enabled: boolean;
+  cron_expression: string;
+  cron_description: string;
+  last_run_at: string | null;
+  next_run_at: string | null;
+  created_at: string;
+  updated_at: string;
+  recent_runs: SyncScheduleRun[];
+}
+
+export interface SyncSchedulePresets {
+  presets: Array<{ label: string; value: string }>;
+  sync_types: Array<{ value: string; label: string }>;
+}
+
+export interface SyncScheduleRunNowResult {
+  success: boolean;
+  message: string;
+  sync_id: number | null;
+}
+
+export interface SyncScheduleHistoryResult {
+  schedule_id: number;
+  schedule_name: string;
+  runs: SyncScheduleRun[];
+}
+
+// Sync Schedule API functions
+export const syncSchedulesApi = {
+  list: (params?: { collection?: number; sync_type?: string; enabled?: boolean }) =>
+    apiClient.get<PaginatedResponse<SyncSchedule>>('/api/sync-schedules/', { params }),
+  get: (id: number) => apiClient.get<SyncSchedule>(`/api/sync-schedules/${id}/`),
+  create: (data: {
+    name: string;
+    sync_type: 'full_collection' | 'selective';
+    collection?: number | null;
+    enabled?: boolean;
+    cron_expression: string;
+  }) => apiClient.post<SyncSchedule>('/api/sync-schedules/', data),
+  update: (id: number, data: {
+    name?: string;
+    sync_type?: 'full_collection' | 'selective';
+    collection?: number | null;
+    enabled?: boolean;
+    cron_expression?: string;
+  }) => apiClient.patch<SyncSchedule>(`/api/sync-schedules/${id}/`, data),
+  delete: (id: number) => apiClient.delete(`/api/sync-schedules/${id}/`),
+  runNow: (id: number) =>
+    apiClient.post<SyncScheduleRunNowResult>(`/api/sync-schedules/${id}/run-now/`),
+  getHistory: (id: number) =>
+    apiClient.get<SyncScheduleHistoryResult>(`/api/sync-schedules/${id}/history/`),
+  getPresets: () =>
+    apiClient.get<SyncSchedulePresets>('/api/sync-schedules/presets/'),
 };

@@ -1,3 +1,5 @@
+import secrets
+
 from django.db import models
 from django.utils import timezone
 
@@ -140,6 +142,10 @@ class Document(models.Model):
     ready = models.BooleanField(default=False)
     validatable = models.BooleanField(default=False)
     has_challenges = models.BooleanField(default=False)
+    sync_enabled = models.BooleanField(
+        default=True,
+        help_text="Whether this document should be included in selective/scheduled syncs",
+    )
 
     created_dt = models.DateTimeField(default=timezone.now)
     uploaded_dt = models.DateTimeField(null=True, blank=True)
@@ -170,24 +176,65 @@ class SyncHistory(models.Model):
     SYNC_TYPE_COLLECTIONS = "collections"
     SYNC_TYPE_FIELD_DEFINITIONS = "field_definitions"
     SYNC_TYPE_DOCUMENTS = "documents"
+    SYNC_TYPE_FULL_COLLECTION = "full_collection"
+    SYNC_TYPE_SELECTIVE = "selective"
+    SYNC_TYPE_WEBHOOK = "webhook"
+    SYNC_TYPE_SCHEDULED = "scheduled"
     SYNC_TYPE_CHOICES = [
         (SYNC_TYPE_WORKSPACES, "Workspaces"),
         (SYNC_TYPE_COLLECTIONS, "Collections"),
         (SYNC_TYPE_FIELD_DEFINITIONS, "Field Definitions"),
         (SYNC_TYPE_DOCUMENTS, "Documents"),
+        (SYNC_TYPE_FULL_COLLECTION, "Full Collection Sync"),
+        (SYNC_TYPE_SELECTIVE, "Selective Sync"),
+        (SYNC_TYPE_WEBHOOK, "Webhook Sync"),
+        (SYNC_TYPE_SCHEDULED, "Scheduled Sync"),
+    ]
+
+    STATUS_PENDING = "pending"
+    STATUS_IN_PROGRESS = "in_progress"
+    STATUS_COMPLETED = "completed"
+    STATUS_FAILED = "failed"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_IN_PROGRESS, "In Progress"),
+        (STATUS_COMPLETED, "Completed"),
+        (STATUS_FAILED, "Failed"),
     ]
 
     sync_type = models.CharField(max_length=32, choices=SYNC_TYPE_CHOICES)
+    status = models.CharField(
+        max_length=32,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING,
+    )
+    collection = models.ForeignKey(
+        "Collection",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sync_histories",
+        help_text="Collection being synced (for collection-specific syncs)",
+    )
     started_at = models.DateTimeField(default=timezone.now)
     completed_at = models.DateTimeField(null=True, blank=True)
     success = models.BooleanField(default=False)
     records_synced = models.IntegerField(default=0)
     error_message = models.TextField(blank=True)
 
+    # Progress tracking for large syncs
+    total_documents = models.IntegerField(default=0)
+    documents_created = models.IntegerField(default=0)
+    documents_updated = models.IntegerField(default=0)
+    documents_failed = models.IntegerField(default=0)
+    progress_percent = models.IntegerField(default=0)
+
     class Meta:
         ordering = ["-started_at"]
         indexes = [
             models.Index(fields=["sync_type", "-started_at"]),
+            models.Index(fields=["status"]),
+            models.Index(fields=["collection", "-started_at"]),
         ]
 
     def __str__(self) -> str:
@@ -492,3 +539,253 @@ class ExternalTableColumn(models.Model):
         if safe_name[0].isdigit():
             safe_name = f"c_{safe_name}"
         return safe_name[:63].lower()
+
+
+class WebhookConfiguration(models.Model):
+    """
+    Singleton model for webhook configuration.
+    Stores webhook settings including the secret token for URL-based authentication.
+    """
+
+    # Supported webhook events
+    EVENT_DOCUMENT_PARSE_SUCCEEDED = "document.parse.succeeded"
+    EVENT_DOCUMENT_PARSE_FAILED = "document.parse.failed"
+    EVENT_DOCUMENT_PARSE_COMPLETED = "document.parse.completed"
+    EVENT_DOCUMENT_VALIDATE_COMPLETED = "document.validate.completed"
+    EVENT_DOCUMENT_CLASSIFY_SUCCEEDED = "document.classify.succeeded"
+    EVENT_DOCUMENT_CLASSIFY_FAILED = "document.classify.failed"
+    EVENT_DOCUMENT_CLASSIFY_COMPLETED = "document.classify.completed"
+    EVENT_DOCUMENT_REJECTED = "document.rejected"
+
+    SUPPORTED_EVENTS = [
+        (EVENT_DOCUMENT_PARSE_SUCCEEDED, "Document Parse Succeeded"),
+        (EVENT_DOCUMENT_PARSE_FAILED, "Document Parse Failed"),
+        (EVENT_DOCUMENT_PARSE_COMPLETED, "Document Parse Completed"),
+        (EVENT_DOCUMENT_VALIDATE_COMPLETED, "Document Validate Completed"),
+        (EVENT_DOCUMENT_CLASSIFY_SUCCEEDED, "Document Classify Succeeded"),
+        (EVENT_DOCUMENT_CLASSIFY_FAILED, "Document Classify Failed"),
+        (EVENT_DOCUMENT_CLASSIFY_COMPLETED, "Document Classify Completed"),
+        (EVENT_DOCUMENT_REJECTED, "Document Rejected"),
+    ]
+
+    enabled = models.BooleanField(
+        default=False,
+        help_text="Master toggle for webhook processing",
+    )
+    secret_token = models.CharField(
+        max_length=64,
+        unique=True,
+        help_text="Secret token used in webhook URL for authentication",
+    )
+    enabled_events = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of enabled event types",
+    )
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Webhook Configuration"
+        verbose_name_plural = "Webhook Configuration"
+
+    def __str__(self) -> str:
+        status = "Enabled" if self.enabled else "Disabled"
+        return f"Webhook Configuration ({status})"
+
+    def save(self, *args, **kwargs):
+        if not self.secret_token:
+            self.secret_token = self.generate_secret_token()
+        # Ensure only one instance exists
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get_config(cls) -> "WebhookConfiguration":
+        """Get or create the singleton webhook configuration."""
+        config, _ = cls.objects.get_or_create(
+            pk=1,
+            defaults={"secret_token": cls.generate_secret_token()},
+        )
+        return config
+
+    @staticmethod
+    def generate_secret_token() -> str:
+        """Generate a cryptographically secure token."""
+        return secrets.token_urlsafe(32)
+
+    def is_event_enabled(self, event_type: str) -> bool:
+        """Check if a specific event type is enabled."""
+        return self.enabled and event_type in self.enabled_events
+
+
+class WebhookLog(models.Model):
+    """
+    Audit log for received webhooks.
+    Tracks all incoming webhook requests for debugging and monitoring.
+    """
+
+    STATUS_RECEIVED = "received"
+    STATUS_PROCESSED = "processed"
+    STATUS_FAILED = "failed"
+    STATUS_IGNORED = "ignored"
+    STATUS_CHOICES = [
+        (STATUS_RECEIVED, "Received"),
+        (STATUS_PROCESSED, "Processed"),
+        (STATUS_FAILED, "Failed"),
+        (STATUS_IGNORED, "Ignored"),
+    ]
+
+    event_type = models.CharField(max_length=64)
+    document_identifier = models.CharField(max_length=64, blank=True)
+    payload = models.JSONField(default=dict)
+    status = models.CharField(
+        max_length=32,
+        choices=STATUS_CHOICES,
+        default=STATUS_RECEIVED,
+    )
+    error_message = models.TextField(blank=True)
+    received_at = models.DateTimeField(default=timezone.now)
+    processed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-received_at"]
+        indexes = [
+            models.Index(fields=["-received_at"]),
+            models.Index(fields=["status"]),
+            models.Index(fields=["event_type"]),
+            models.Index(fields=["document_identifier"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.event_type} - {self.status} at {self.received_at}"
+
+
+class SyncSchedule(models.Model):
+    """
+    Configurable sync schedules for automated document synchronization.
+    Supports cron-based scheduling for both full collection and selective syncs.
+    """
+
+    SYNC_TYPE_FULL_COLLECTION = "full_collection"
+    SYNC_TYPE_SELECTIVE = "selective"
+    SYNC_TYPE_CHOICES = [
+        (SYNC_TYPE_FULL_COLLECTION, "Full Collection Sync"),
+        (SYNC_TYPE_SELECTIVE, "Selective Sync"),
+    ]
+
+    name = models.CharField(
+        max_length=255,
+        help_text="User-friendly name for this schedule",
+    )
+    sync_type = models.CharField(
+        max_length=32,
+        choices=SYNC_TYPE_CHOICES,
+        help_text="Type of sync to perform",
+    )
+    collection = models.ForeignKey(
+        Collection,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="sync_schedules",
+        help_text="Collection to sync (required for full_collection, optional for selective)",
+    )
+    enabled = models.BooleanField(
+        default=True,
+        help_text="Whether this schedule is active",
+    )
+    cron_expression = models.CharField(
+        max_length=100,
+        help_text="Cron expression for scheduling (e.g., '0 2 * * *' for 2am daily)",
+    )
+    last_run_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When this schedule was last executed",
+    )
+    next_run_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Calculated next run time",
+    )
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+        indexes = [
+            models.Index(fields=["enabled", "next_run_at"]),
+            models.Index(fields=["collection"]),
+        ]
+
+    def __str__(self) -> str:
+        status = "Enabled" if self.enabled else "Disabled"
+        return f"{self.name} ({self.get_sync_type_display()}) - {status}"
+
+    def calculate_next_run(self, from_time=None):
+        """Calculate and set the next run time based on cron expression."""
+        try:
+            from croniter import croniter
+
+            base_time = from_time or timezone.now()
+            cron = croniter(self.cron_expression, base_time)
+            self.next_run_at = cron.get_next(timezone.datetime)
+            return self.next_run_at
+        except Exception:
+            return None
+
+    def should_run_now(self) -> bool:
+        """Check if this schedule should execute now."""
+        if not self.enabled:
+            return False
+        if not self.next_run_at:
+            return False
+        return timezone.now() >= self.next_run_at
+
+    def save(self, *args, **kwargs):
+        # Calculate next run time on save if not set
+        if self.enabled and not self.next_run_at:
+            self.calculate_next_run()
+        super().save(*args, **kwargs)
+
+
+class SyncScheduleRun(models.Model):
+    """
+    Tracks individual executions of sync schedules.
+    Links schedules to their sync history records for auditing.
+    """
+
+    TRIGGERED_BY_SCHEDULED = "scheduled"
+    TRIGGERED_BY_MANUAL = "manual"
+    TRIGGERED_BY_CHOICES = [
+        (TRIGGERED_BY_SCHEDULED, "Scheduled"),
+        (TRIGGERED_BY_MANUAL, "Manual"),
+    ]
+
+    schedule = models.ForeignKey(
+        SyncSchedule,
+        on_delete=models.CASCADE,
+        related_name="runs",
+    )
+    sync_history = models.ForeignKey(
+        SyncHistory,
+        on_delete=models.CASCADE,
+        related_name="schedule_runs",
+    )
+    triggered_by = models.CharField(
+        max_length=32,
+        choices=TRIGGERED_BY_CHOICES,
+        default=TRIGGERED_BY_SCHEDULED,
+    )
+    started_at = models.DateTimeField(default=timezone.now)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-started_at"]
+        indexes = [
+            models.Index(fields=["schedule", "-started_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.schedule.name} - {self.triggered_by} at {self.started_at}"

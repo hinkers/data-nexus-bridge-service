@@ -10,6 +10,8 @@ from affinda_bridge.models import (
     ExternalTableColumn,
     FieldDefinition,
     SyncHistory,
+    SyncSchedule,
+    SyncScheduleRun,
     SystemSettings,
     Workspace,
 )
@@ -191,6 +193,7 @@ class DocumentSerializer(serializers.ModelSerializer):
             "ready",
             "validatable",
             "has_challenges",
+            "sync_enabled",
             "created_dt",
             "uploaded_dt",
             "last_updated_dt",
@@ -225,6 +228,7 @@ class DocumentListSerializer(serializers.ModelSerializer):
             "in_review",
             "failed",
             "ready",
+            "sync_enabled",
             "created_dt",
             "last_updated_dt",
             "data",
@@ -234,16 +238,26 @@ class DocumentListSerializer(serializers.ModelSerializer):
 
 
 class SyncHistorySerializer(serializers.ModelSerializer):
+    collection_name = serializers.CharField(source="collection.name", read_only=True, allow_null=True)
+
     class Meta:
         model = SyncHistory
         fields = [
             "id",
             "sync_type",
+            "status",
+            "collection",
+            "collection_name",
             "started_at",
             "completed_at",
             "success",
             "records_synced",
             "error_message",
+            "total_documents",
+            "documents_created",
+            "documents_updated",
+            "documents_failed",
+            "progress_percent",
         ]
         read_only_fields = ["id", "started_at"]
 
@@ -461,3 +475,114 @@ class ExternalTableCreateSerializer(serializers.ModelSerializer):
             ExternalTableColumn.objects.create(external_table=external_table, **col_data)
 
         return external_table
+
+
+# Sync Schedule Serializers
+
+
+class SyncScheduleRunSerializer(serializers.ModelSerializer):
+    """Serializer for sync schedule run history."""
+
+    sync_history_status = serializers.CharField(source="sync_history.status", read_only=True)
+    sync_history_success = serializers.BooleanField(source="sync_history.success", read_only=True)
+    documents_synced = serializers.IntegerField(source="sync_history.records_synced", read_only=True)
+
+    class Meta:
+        model = SyncScheduleRun
+        fields = [
+            "id",
+            "schedule",
+            "sync_history",
+            "sync_history_status",
+            "sync_history_success",
+            "documents_synced",
+            "triggered_by",
+            "started_at",
+            "completed_at",
+        ]
+        read_only_fields = ["id", "started_at"]
+
+
+class SyncScheduleSerializer(serializers.ModelSerializer):
+    """Serializer for sync schedules."""
+
+    collection_name = serializers.CharField(source="collection.name", read_only=True, allow_null=True)
+    cron_description = serializers.SerializerMethodField()
+    recent_runs = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SyncSchedule
+        fields = [
+            "id",
+            "name",
+            "sync_type",
+            "collection",
+            "collection_name",
+            "enabled",
+            "cron_expression",
+            "cron_description",
+            "last_run_at",
+            "next_run_at",
+            "created_at",
+            "updated_at",
+            "recent_runs",
+        ]
+        read_only_fields = [
+            "id",
+            "last_run_at",
+            "next_run_at",
+            "created_at",
+            "updated_at",
+            "cron_description",
+            "recent_runs",
+        ]
+
+    def get_cron_description(self, obj: SyncSchedule) -> str:
+        from affinda_bridge.services import get_cron_description
+        return get_cron_description(obj.cron_expression)
+
+    def get_recent_runs(self, obj: SyncSchedule) -> list:
+        runs = obj.runs.order_by("-started_at")[:5]
+        return SyncScheduleRunSerializer(runs, many=True).data
+
+    def validate(self, data):
+        """Validate schedule configuration."""
+        sync_type = data.get("sync_type", getattr(self.instance, "sync_type", None))
+        collection = data.get("collection", getattr(self.instance, "collection", None))
+
+        # Full collection sync requires a collection
+        if sync_type == SyncSchedule.SYNC_TYPE_FULL_COLLECTION and not collection:
+            raise serializers.ValidationError({
+                "collection": "Collection is required for full collection sync"
+            })
+
+        # Validate cron expression
+        cron_expression = data.get("cron_expression")
+        if cron_expression:
+            try:
+                from croniter import croniter
+                croniter(cron_expression)
+            except ImportError:
+                pass  # croniter not installed, skip validation
+            except Exception as e:
+                raise serializers.ValidationError({
+                    "cron_expression": f"Invalid cron expression: {e}"
+                })
+
+        return data
+
+    def create(self, validated_data):
+        schedule = super().create(validated_data)
+        # Calculate next run time
+        schedule.calculate_next_run()
+        schedule.save(update_fields=["next_run_at"])
+        return schedule
+
+    def update(self, instance, validated_data):
+        schedule = super().update(instance, validated_data)
+        # Recalculate next run time if cron changed or enabled changed
+        if "cron_expression" in validated_data or "enabled" in validated_data:
+            if schedule.enabled:
+                schedule.calculate_next_run()
+                schedule.save(update_fields=["next_run_at"])
+        return schedule

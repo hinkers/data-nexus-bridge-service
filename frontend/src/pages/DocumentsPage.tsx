@@ -16,6 +16,9 @@ function DocumentsPage() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [isTogglingSync, setIsTogglingSync] = useState(false);
+  const [isSelectiveSync, setIsSelectiveSync] = useState(false);
+  const [selectiveSyncMessage, setSelectiveSyncMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -133,6 +136,57 @@ function DocumentsPage() {
     }
   };
 
+  const handleToggleSync = async () => {
+    if (!selectedDocument) return;
+
+    setIsTogglingSync(true);
+    try {
+      const response = await documentsApi.toggleSync(selectedDocument.id);
+      if (response.data.success) {
+        // Update the selected document
+        const updatedDoc = { ...selectedDocument, sync_enabled: response.data.sync_enabled };
+        setSelectedDocument(updatedDoc);
+        // Also update in the documents list
+        setDocuments(docs =>
+          docs.map(d => d.id === selectedDocument.id ? updatedDoc : d)
+        );
+        setRefreshMessage({
+          type: 'success',
+          text: `Sync ${response.data.sync_enabled ? 'enabled' : 'disabled'} for this document`
+        });
+      }
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to toggle sync';
+      setRefreshMessage({ type: 'error', text: errorMessage });
+    } finally {
+      setIsTogglingSync(false);
+    }
+  };
+
+  const handleSelectiveSync = async () => {
+    setIsSelectiveSync(true);
+    setSelectiveSyncMessage(null);
+
+    try {
+      const collectionId = selectedCollection ? Number(selectedCollection) : undefined;
+      const response = await documentsApi.selectiveSync(collectionId);
+
+      if (response.data.sync_history_id) {
+        setSelectiveSyncMessage({
+          type: 'success',
+          text: `Selective sync started. Documents to sync: ${response.data.documents_to_sync}`
+        });
+        // Refresh the document list after a short delay
+        setTimeout(() => fetchData(), 2000);
+      }
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to start selective sync';
+      setSelectiveSyncMessage({ type: 'error', text: errorMessage });
+    } finally {
+      setIsSelectiveSync(false);
+    }
+  };
+
   const filteredDocuments = documents
     .filter(doc => {
       if (!searchQuery) return true;
@@ -154,8 +208,44 @@ function DocumentsPage() {
   return (
     <div className="p-12 w-full">
       <div className="mb-10">
-        <h1 className="text-4xl font-bold text-gray-900 mb-2">Documents</h1>
-        <p className="text-gray-600">View and manage processed documents</p>
+        <div className="flex justify-between items-start">
+          <div>
+            <h1 className="text-4xl font-bold text-gray-900 mb-2">Documents</h1>
+            <p className="text-gray-600">View and manage processed documents</p>
+          </div>
+          <button
+            onClick={handleSelectiveSync}
+            disabled={isSelectiveSync}
+            className="px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg font-semibold hover:from-green-700 hover:to-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          >
+            <svg className={`w-5 h-5 ${isSelectiveSync ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            {isSelectiveSync ? 'Syncing...' : 'Sync Enabled Documents'}
+          </button>
+        </div>
+
+        {/* Selective Sync Message */}
+        {selectiveSyncMessage && (
+          <div className={`mt-4 p-4 rounded-lg ${
+            selectiveSyncMessage.type === 'success'
+              ? 'bg-green-50 text-green-700 border border-green-200'
+              : 'bg-red-50 text-red-700 border border-red-200'
+          }`}>
+            <div className="flex items-center justify-between">
+              <span>{selectiveSyncMessage.text}</span>
+              <button
+                onClick={() => setSelectiveSyncMessage(null)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        )}
+
         {selectedCollectionName && (
           <div className="mt-4 inline-flex items-center gap-2 bg-purple-100 text-purple-700 px-4 py-2 rounded-lg">
             <span className="text-sm font-medium">Filtered by collection: {selectedCollectionName}</span>
@@ -231,7 +321,14 @@ function DocumentsPage() {
                     <p className="text-sm text-gray-500">{doc.custom_identifier}</p>
                   </div>
                   <div className="flex flex-col items-end gap-2">
-                    {getStatusBadge(doc)}
+                    <div className="flex items-center gap-2">
+                      {doc.sync_enabled && (
+                        <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-medium" title="Included in selective sync">
+                          Sync
+                        </span>
+                      )}
+                      {getStatusBadge(doc)}
+                    </div>
                     <div className="text-xs text-gray-500">
                       {new Date(doc.created_dt).toLocaleString()}
                     </div>
@@ -336,6 +433,25 @@ function DocumentsPage() {
                       <p className="text-gray-900">{new Date(selectedDocument.last_updated_dt).toLocaleString()}</p>
                     </div>
                   )}
+                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div>
+                      <span className="text-sm font-medium text-gray-600">Include in Selective Sync:</span>
+                      <p className="text-xs text-gray-500 mt-0.5">When enabled, this document will be updated during selective sync operations</p>
+                    </div>
+                    <button
+                      onClick={handleToggleSync}
+                      disabled={isTogglingSync}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                        selectedDocument.sync_enabled ? 'bg-green-600' : 'bg-gray-300'
+                      } ${isTogglingSync ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          selectedDocument.sync_enabled ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
                 </div>
               </div>
 

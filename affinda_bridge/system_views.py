@@ -491,3 +491,100 @@ def clear_affinda_api_key(request):
             'success': False,
             'message': f'Failed to clear API key: {str(e)}',
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def get_webhook_config(request):
+    """
+    Get current webhook configuration.
+    Requires admin permissions.
+    """
+    from affinda_bridge.models import WebhookConfiguration
+
+    config = WebhookConfiguration.get_config()
+
+    # Build the webhook URL
+    webhook_url = request.build_absolute_uri(f'/api/webhooks/affinda/{config.secret_token}/')
+
+    return Response({
+        'enabled': config.enabled,
+        'webhook_url': webhook_url,
+        'secret_token': config.secret_token,
+        'enabled_events': config.enabled_events,
+        'available_events': [
+            {'value': event[0], 'label': event[1]}
+            for event in WebhookConfiguration.SUPPORTED_EVENTS
+        ],
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def update_webhook_config(request):
+    """
+    Update webhook configuration.
+    Requires admin permissions.
+    """
+    from affinda_bridge.models import WebhookConfiguration
+
+    config = WebhookConfiguration.get_config()
+
+    # Update fields if provided
+    if 'enabled' in request.data:
+        config.enabled = request.data['enabled']
+
+    if 'enabled_events' in request.data:
+        # Validate event types
+        valid_events = [e[0] for e in WebhookConfiguration.SUPPORTED_EVENTS]
+        enabled_events = request.data['enabled_events']
+
+        if not isinstance(enabled_events, list):
+            return Response({
+                'error': 'enabled_events must be a list',
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        invalid_events = [e for e in enabled_events if e not in valid_events]
+        if invalid_events:
+            return Response({
+                'error': f'Invalid event types: {invalid_events}',
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        config.enabled_events = enabled_events
+
+    config.save()
+
+    # Build the webhook URL
+    webhook_url = request.build_absolute_uri(f'/api/webhooks/affinda/{config.secret_token}/')
+
+    return Response({
+        'enabled': config.enabled,
+        'webhook_url': webhook_url,
+        'secret_token': config.secret_token,
+        'enabled_events': config.enabled_events,
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def regenerate_webhook_token(request):
+    """
+    Regenerate the webhook secret token.
+    This will invalidate the previous webhook URL.
+    Requires admin permissions.
+    """
+    from affinda_bridge.models import WebhookConfiguration
+
+    config = WebhookConfiguration.get_config()
+    config.secret_token = WebhookConfiguration.generate_secret_token()
+    config.save()
+
+    # Build the new webhook URL
+    webhook_url = request.build_absolute_uri(f'/api/webhooks/affinda/{config.secret_token}/')
+
+    return Response({
+        'success': True,
+        'message': 'Webhook token regenerated. Update your Affinda webhook configuration with the new URL.',
+        'webhook_url': webhook_url,
+        'secret_token': config.secret_token,
+    })

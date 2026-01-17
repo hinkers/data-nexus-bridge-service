@@ -17,6 +17,7 @@ from affinda_bridge.models import (
     ExternalTableColumn,
     FieldDefinition,
     SyncHistory,
+    SyncSchedule,
     Workspace,
 )
 from affinda_bridge.serializers import (
@@ -32,6 +33,7 @@ from affinda_bridge.serializers import (
     ExternalTableSerializer,
     FieldDefinitionSerializer,
     SyncHistorySerializer,
+    SyncScheduleSerializer,
     WorkspaceSerializer,
 )
 from affinda_bridge.services import (
@@ -190,6 +192,71 @@ class CollectionViewSet(viewsets.ReadOnlyModelViewSet):
     lookup_field = "identifier"
     filterset_fields = ["workspace"]
 
+    @action(detail=True, methods=["post"], url_path="full-sync")
+    def full_sync(self, request, identifier=None):
+        """
+        Start a full collection sync from Affinda.
+        This runs in the background and returns immediately with a sync_id.
+        """
+        from affinda_bridge.tasks import run_full_collection_sync
+
+        collection = self.get_object()
+
+        # Create sync history record
+        sync_history = SyncHistory.objects.create(
+            sync_type=SyncHistory.SYNC_TYPE_FULL_COLLECTION,
+            status=SyncHistory.STATUS_PENDING,
+            collection=collection,
+        )
+
+        # Start background sync
+        run_full_collection_sync(collection.id, sync_history.id)
+
+        return Response({
+            "success": True,
+            "message": "Full collection sync started",
+            "sync_id": sync_history.id,
+            "collection_identifier": collection.identifier,
+        })
+
+    @action(detail=True, methods=["get"], url_path="sync-status")
+    def sync_status(self, request, identifier=None):
+        """
+        Get the latest sync status for this collection.
+        """
+        collection = self.get_object()
+
+        # Get the most recent sync for this collection
+        latest_sync = SyncHistory.objects.filter(
+            collection=collection,
+            sync_type__in=[
+                SyncHistory.SYNC_TYPE_FULL_COLLECTION,
+                SyncHistory.SYNC_TYPE_SELECTIVE,
+            ],
+        ).order_by("-started_at").first()
+
+        if not latest_sync:
+            return Response({
+                "has_sync": False,
+                "message": "No sync history found for this collection",
+            })
+
+        return Response({
+            "has_sync": True,
+            "sync_id": latest_sync.id,
+            "sync_type": latest_sync.sync_type,
+            "status": latest_sync.status,
+            "started_at": latest_sync.started_at,
+            "completed_at": latest_sync.completed_at,
+            "success": latest_sync.success,
+            "total_documents": latest_sync.total_documents,
+            "documents_created": latest_sync.documents_created,
+            "documents_updated": latest_sync.documents_updated,
+            "documents_failed": latest_sync.documents_failed,
+            "progress_percent": latest_sync.progress_percent,
+            "error_message": latest_sync.error_message,
+        })
+
 
 class FieldDefinitionViewSet(viewsets.ReadOnlyModelViewSet):
     """API endpoint for viewing field definitions"""
@@ -290,6 +357,63 @@ class DocumentViewSet(viewsets.ReadOnlyModelViewSet):
                 {"success": False, "message": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+    @action(detail=True, methods=["patch"], url_path="toggle-sync")
+    def toggle_sync(self, request, pk=None):
+        """Toggle the sync_enabled flag for a document."""
+        document = self.get_object()
+
+        # If sync_enabled is provided in request, use it; otherwise toggle
+        if "sync_enabled" in request.data:
+            document.sync_enabled = request.data["sync_enabled"]
+        else:
+            document.sync_enabled = not document.sync_enabled
+
+        document.save(update_fields=["sync_enabled"])
+
+        return Response({
+            "success": True,
+            "document_id": document.id,
+            "sync_enabled": document.sync_enabled,
+        })
+
+    @action(detail=False, methods=["post"], url_path="selective-sync")
+    def selective_sync(self, request):
+        """
+        Start a selective sync for all documents with sync_enabled=True.
+        Optionally filter by collection using query parameter.
+        """
+        from affinda_bridge.tasks import run_selective_sync
+
+        collection_id = request.data.get("collection_id") or request.query_params.get("collection_id")
+
+        # Get collection for the sync history record if provided
+        collection = None
+        if collection_id:
+            try:
+                collection = Collection.objects.get(id=collection_id)
+            except Collection.DoesNotExist:
+                return Response(
+                    {"error": f"Collection with id {collection_id} not found"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+        # Create sync history record
+        sync_history = SyncHistory.objects.create(
+            sync_type=SyncHistory.SYNC_TYPE_SELECTIVE,
+            status=SyncHistory.STATUS_PENDING,
+            collection=collection,
+        )
+
+        # Start background sync
+        run_selective_sync(sync_history.id, collection_id=int(collection_id) if collection_id else None)
+
+        return Response({
+            "success": True,
+            "message": "Selective sync started",
+            "sync_id": sync_history.id,
+            "collection_id": collection_id,
+        })
 
 
 class SyncHistoryViewSet(viewsets.ReadOnlyModelViewSet):
@@ -606,3 +730,80 @@ class ExternalTableColumnViewSet(viewsets.ModelViewSet):
                 "Cannot delete column from active table. Deactivate the table first."
             )
         instance.delete()
+
+
+class SyncScheduleViewSet(viewsets.ModelViewSet):
+    """
+    API endpoint for managing sync schedules.
+
+    Endpoints:
+    - GET /api/sync-schedules/ - List all schedules
+    - POST /api/sync-schedules/ - Create a new schedule
+    - GET /api/sync-schedules/{id}/ - Get schedule details
+    - PUT/PATCH /api/sync-schedules/{id}/ - Update schedule
+    - DELETE /api/sync-schedules/{id}/ - Delete schedule
+    - POST /api/sync-schedules/{id}/run-now/ - Manually trigger schedule
+    - GET /api/sync-schedules/{id}/history/ - Get run history for schedule
+    """
+
+    queryset = SyncSchedule.objects.select_related("collection").all()
+    serializer_class = SyncScheduleSerializer
+    filterset_fields = ["collection", "sync_type", "enabled"]
+
+    @action(detail=True, methods=["post"], url_path="run-now")
+    def run_now(self, request, pk=None):
+        """Manually trigger this schedule to run immediately."""
+        from affinda_bridge.services import run_schedule
+
+        schedule = self.get_object()
+
+        if not schedule.collection and schedule.sync_type == "full_collection":
+            return Response(
+                {"error": "Cannot run full collection sync without a collection"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            sync_history = run_schedule(schedule, triggered_by="manual")
+            return Response({
+                "success": True,
+                "message": f"Schedule '{schedule.name}' triggered manually",
+                "sync_id": sync_history.id if sync_history else None,
+            })
+        except Exception as e:
+            return Response(
+                {"success": False, "error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @action(detail=True, methods=["get"])
+    def history(self, request, pk=None):
+        """Get the run history for this schedule."""
+        from affinda_bridge.models import SyncScheduleRun
+        from affinda_bridge.serializers import SyncScheduleRunSerializer
+
+        schedule = self.get_object()
+        runs = SyncScheduleRun.objects.filter(schedule=schedule).order_by("-started_at")[:50]
+
+        return Response({
+            "schedule_id": schedule.id,
+            "schedule_name": schedule.name,
+            "runs": SyncScheduleRunSerializer(runs, many=True).data,
+        })
+
+    @action(detail=False, methods=["get"])
+    def presets(self, request):
+        """Get available cron expression presets."""
+        return Response({
+            "presets": [
+                {"label": "Every Hour", "value": "0 * * * *"},
+                {"label": "Every 6 Hours", "value": "0 */6 * * *"},
+                {"label": "Daily at Midnight", "value": "0 0 * * *"},
+                {"label": "Daily at 2am (Recommended)", "value": "0 2 * * *"},
+                {"label": "Weekly on Sunday", "value": "0 0 * * 0"},
+            ],
+            "sync_types": [
+                {"value": "full_collection", "label": "Full Collection Sync"},
+                {"value": "selective", "label": "Selective Sync"},
+            ],
+        })
