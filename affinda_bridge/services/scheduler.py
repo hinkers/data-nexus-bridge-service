@@ -90,6 +90,8 @@ def run_schedule(schedule, triggered_by: str = "scheduled") -> Optional["SyncHis
     # Determine sync type for history
     if schedule.sync_type == SyncSchedule.SYNC_TYPE_FULL_COLLECTION:
         sync_type = SyncHistory.SYNC_TYPE_FULL_COLLECTION
+    elif schedule.sync_type == SyncSchedule.SYNC_TYPE_DATA_SOURCE:
+        sync_type = SyncHistory.SYNC_TYPE_DATA_SOURCE
     else:
         sync_type = SyncHistory.SYNC_TYPE_SELECTIVE
 
@@ -98,6 +100,7 @@ def run_schedule(schedule, triggered_by: str = "scheduled") -> Optional["SyncHis
         sync_type=sync_type,
         status=SyncHistory.STATUS_PENDING,
         collection=schedule.collection,
+        plugin_instance=schedule.plugin_instance,
     )
 
     # Create schedule run record
@@ -113,6 +116,10 @@ def run_schedule(schedule, triggered_by: str = "scheduled") -> Optional["SyncHis
             if not schedule.collection:
                 raise ValueError("Full collection sync requires a collection")
             full_collection_sync(schedule.collection, sync_history)
+        elif schedule.sync_type == SyncSchedule.SYNC_TYPE_DATA_SOURCE:
+            if not schedule.plugin_instance:
+                raise ValueError("Data source sync requires a plugin instance")
+            run_data_source_sync(schedule.plugin_instance, sync_history)
         else:
             # Selective sync
             collection_id = schedule.collection.id if schedule.collection else None
@@ -148,6 +155,55 @@ def run_schedule(schedule, triggered_by: str = "scheduled") -> Optional["SyncHis
         schedule_run.save(update_fields=["completed_at"])
 
     return sync_history
+
+
+def run_data_source_sync(plugin_instance, sync_history) -> None:
+    """
+    Execute a data source plugin sync operation.
+
+    Args:
+        plugin_instance: The PluginInstance to execute
+        sync_history: The SyncHistory record to update with progress
+    """
+    from plugins.executor import execute_datasource
+
+    logger.info(f"Running data source sync for instance: {plugin_instance.name}")
+
+    # Update sync history status
+    sync_history.status = sync_history.STATUS_IN_PROGRESS
+    sync_history.save(update_fields=["status"])
+
+    try:
+        # Execute the data source
+        result = execute_datasource(plugin_instance)
+
+        # Update sync history with results
+        sync_history.status = sync_history.STATUS_COMPLETED if result.success else sync_history.STATUS_FAILED
+        sync_history.success = result.success
+        sync_history.records_synced = result.records_synced
+        sync_history.documents_created = result.records_created
+        sync_history.documents_updated = result.records_updated
+        sync_history.documents_failed = result.records_failed
+        sync_history.progress_percent = 100
+        sync_history.completed_at = timezone.now()
+
+        if not result.success:
+            sync_history.error_message = result.message
+
+        sync_history.save()
+
+        logger.info(
+            f"Data source sync completed: {result.records_synced} records synced, "
+            f"{result.records_failed} failed"
+        )
+
+    except Exception as e:
+        sync_history.status = sync_history.STATUS_FAILED
+        sync_history.success = False
+        sync_history.error_message = str(e)
+        sync_history.completed_at = timezone.now()
+        sync_history.save()
+        raise
 
 
 def get_cron_description(cron_expression: str) -> str:

@@ -36,6 +36,7 @@ class PluginSerializer(serializers.ModelSerializer):
             'importers': components.filter(component_type=PluginComponent.COMPONENT_TYPE_IMPORTER).count(),
             'preprocessors': components.filter(component_type=PluginComponent.COMPONENT_TYPE_PREPROCESSOR).count(),
             'postprocessors': components.filter(component_type=PluginComponent.COMPONENT_TYPE_POSTPROCESSOR).count(),
+            'datasources': components.filter(component_type=PluginComponent.COMPONENT_TYPE_DATASOURCE).count(),
         }
 
 
@@ -97,6 +98,7 @@ class PluginInstanceSerializer(serializers.ModelSerializer):
             'config_schema',
             'event_triggers',
             'collections',
+            'affinda_data_source',
             'created_at',
             'updated_at',
         ]
@@ -116,6 +118,7 @@ class PluginInstanceCreateSerializer(serializers.ModelSerializer):
             'config',
             'event_triggers',
             'collections',
+            'affinda_data_source',
         ]
 
 
@@ -171,6 +174,7 @@ class AvailablePluginSerializer(serializers.Serializer):
     importers = serializers.ListField()
     preprocessors = serializers.ListField()
     postprocessors = serializers.ListField()
+    datasources = serializers.ListField()
 
 
 class ImporterRunSerializer(serializers.Serializer):

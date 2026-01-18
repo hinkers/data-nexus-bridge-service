@@ -716,9 +716,11 @@ export interface SyncScheduleRun {
 export interface SyncSchedule {
   id: number;
   name: string;
-  sync_type: 'full_collection' | 'selective';
+  sync_type: 'full_collection' | 'selective' | 'data_source';
   collection: number | null;
   collection_name: string | null;
+  plugin_instance: number | null;
+  plugin_instance_name: string | null;
   enabled: boolean;
   cron_expression: string;
   cron_description: string;
@@ -727,6 +729,18 @@ export interface SyncSchedule {
   created_at: string;
   updated_at: string;
   recent_runs: SyncScheduleRun[];
+}
+
+export interface DataSourceInstance {
+  id: number;
+  name: string;
+  component_name: string;
+  plugin_name: string;
+  affinda_data_source: string;
+}
+
+export interface DataSourceInstancesResult {
+  instances: DataSourceInstance[];
 }
 
 export interface SyncSchedulePresets {
@@ -748,20 +762,22 @@ export interface SyncScheduleHistoryResult {
 
 // Sync Schedule API functions
 export const syncSchedulesApi = {
-  list: (params?: { collection?: number; sync_type?: string; enabled?: boolean }) =>
+  list: (params?: { collection?: number; sync_type?: string; enabled?: boolean; plugin_instance?: number }) =>
     apiClient.get<PaginatedResponse<SyncSchedule>>('/api/sync-schedules/', { params }),
   get: (id: number) => apiClient.get<SyncSchedule>(`/api/sync-schedules/${id}/`),
   create: (data: {
     name: string;
-    sync_type: 'full_collection' | 'selective';
+    sync_type: 'full_collection' | 'selective' | 'data_source';
     collection?: number | null;
+    plugin_instance?: number | null;
     enabled?: boolean;
     cron_expression: string;
   }) => apiClient.post<SyncSchedule>('/api/sync-schedules/', data),
   update: (id: number, data: {
     name?: string;
-    sync_type?: 'full_collection' | 'selective';
+    sync_type?: 'full_collection' | 'selective' | 'data_source';
     collection?: number | null;
+    plugin_instance?: number | null;
     enabled?: boolean;
     cron_expression?: string;
   }) => apiClient.patch<SyncSchedule>(`/api/sync-schedules/${id}/`, data),
@@ -772,4 +788,6 @@ export const syncSchedulesApi = {
     apiClient.get<SyncScheduleHistoryResult>(`/api/sync-schedules/${id}/history/`),
   getPresets: () =>
     apiClient.get<SyncSchedulePresets>('/api/sync-schedules/presets/'),
+  getDataSourceInstances: () =>
+    apiClient.get<DataSourceInstancesResult>('/api/sync-schedules/data-source-instances/'),
 };

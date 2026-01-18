@@ -9,13 +9,13 @@ from typing import TYPE_CHECKING
 from django.db import transaction
 from django.utils import timezone
 
-from plugins.helpers import AffindaDocumentHelper, AffindaUploadHelper
+from plugins.helpers import AffindaDataSourceHelper, AffindaDocumentHelper, AffindaUploadHelper
 from plugins.models import PluginComponent, PluginExecutionLog, PluginInstance
 from plugins.registry import plugin_registry
 
 if TYPE_CHECKING:
     from affinda_bridge.models import Document
-    from plugins.base import ImportResult, PostProcessResult, PreProcessResult
+    from plugins.base import DataSourceSyncResult, ImportResult, PostProcessResult, PreProcessResult
 
 logger = logging.getLogger(__name__)
 
@@ -363,3 +363,101 @@ def execute_preprocessors(document: "Document") -> list["PreProcessResult"]:
             results.append(PreProcessResult(success=False, message=str(e)))
 
     return results
+
+
+def execute_datasource(instance: PluginInstance) -> "DataSourceSyncResult":
+    """
+    Execute a data source instance to sync records to Affinda.
+
+    Args:
+        instance: The PluginInstance to execute
+
+    Returns:
+        DataSourceSyncResult with sync statistics
+    """
+    from plugins.base import DataSourceSyncResult
+
+    if instance.component.component_type != PluginComponent.COMPONENT_TYPE_DATASOURCE:
+        raise ValueError(f"Instance {instance.name} is not a data source")
+
+    if not instance.enabled:
+        logger.info(f"Skipping disabled data source: {instance.name}")
+        return DataSourceSyncResult(success=True, message="Data source disabled")
+
+    if not instance.affinda_data_source:
+        logger.error(f"Data source instance {instance.name} has no Affinda data source configured")
+        return DataSourceSyncResult(
+            success=False,
+            message="No Affinda data source configured for this instance"
+        )
+
+    # Get the data source class from registry
+    full_slug = f"{instance.component.plugin.slug}.{instance.component.slug}"
+    datasource_class = plugin_registry.get_datasource(full_slug)
+
+    if not datasource_class:
+        logger.error(f"Data source class not found: {full_slug}")
+        return DataSourceSyncResult(success=False, message=f"Data source class not found: {full_slug}")
+
+    # Create execution log
+    log = PluginExecutionLog.objects.create(
+        instance=instance,
+        status=PluginExecutionLog.STATUS_STARTED,
+        input_data={
+            'config': instance.config,
+            'affinda_data_source': instance.affinda_data_source,
+        },
+    )
+
+    try:
+        # Initialize the data source with helper
+        with AffindaDataSourceHelper() as ds_helper:
+            datasource = datasource_class(
+                plugin_config=instance.component.plugin.config,
+                instance_config=instance.config,
+                data_source_helper=ds_helper,
+            )
+
+            # Validate config
+            errors = datasource.validate_config()
+            if errors:
+                raise ValueError(f"Configuration errors: {', '.join(errors)}")
+
+            # Run the sync operation
+            result = datasource.sync(instance.affinda_data_source)
+
+        # Update log with success
+        log.status = PluginExecutionLog.STATUS_SUCCESS if result.success else PluginExecutionLog.STATUS_FAILED
+        log.completed_at = timezone.now()
+        log.output_data = {
+            'success': result.success,
+            'records_synced': result.records_synced,
+            'records_created': result.records_created,
+            'records_updated': result.records_updated,
+            'records_failed': result.records_failed,
+            'errors': result.errors,
+            'message': result.message,
+        }
+        if not result.success:
+            log.error_message = result.message
+        log.save()
+
+        logger.info(
+            f"Data source {instance.name} completed: "
+            f"{result.records_synced} synced, {result.records_failed} failed"
+        )
+
+        return result
+
+    except Exception as e:
+        log.status = PluginExecutionLog.STATUS_FAILED
+        log.completed_at = timezone.now()
+        log.error_message = str(e)
+        log.save()
+
+        logger.error(f"Data source {instance.name} failed: {e}")
+        return DataSourceSyncResult(
+            success=False,
+            errors=[str(e)],
+            message=f"Data source sync failed: {str(e)}"
+        )

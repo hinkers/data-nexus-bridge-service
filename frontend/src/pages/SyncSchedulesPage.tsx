@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { syncSchedulesApi, collectionsApi, type SyncSchedule, type SyncScheduleRun, type Collection } from '../api/client';
+import { syncSchedulesApi, collectionsApi, type SyncSchedule, type SyncScheduleRun, type Collection, type DataSourceInstance } from '../api/client';
 
 function SyncSchedulesPage() {
   const queryClient = useQueryClient();
@@ -14,8 +14,9 @@ function SyncSchedulesPage() {
   // Form state
   const [formData, setFormData] = useState({
     name: '',
-    sync_type: 'selective' as 'full_collection' | 'selective',
+    sync_type: 'selective' as 'full_collection' | 'selective' | 'data_source',
     collection: '' as string | number,
+    plugin_instance: '' as string | number,
     cron_expression: '0 2 * * *',
     enabled: true,
   });
@@ -45,6 +46,14 @@ function SyncSchedulesPage() {
     },
   });
 
+  const { data: dataSourceInstances } = useQuery({
+    queryKey: ['sync-schedules', 'data-source-instances'],
+    queryFn: async () => {
+      const response = await syncSchedulesApi.getDataSourceInstances();
+      return response.data;
+    },
+  });
+
   const { data: scheduleHistory, isLoading: loadingHistory } = useQuery({
     queryKey: ['sync-schedules', selectedSchedule?.id, 'history'],
     queryFn: async () => {
@@ -61,6 +70,7 @@ function SyncSchedulesPage() {
       const payload = {
         ...data,
         collection: data.collection ? Number(data.collection) : undefined,
+        plugin_instance: data.plugin_instance ? Number(data.plugin_instance) : undefined,
       };
       const response = await syncSchedulesApi.create(payload);
       return response.data;
@@ -84,6 +94,7 @@ function SyncSchedulesPage() {
       const payload = {
         ...data,
         collection: data.collection ? Number(data.collection) : undefined,
+        plugin_instance: data.plugin_instance ? Number(data.plugin_instance) : undefined,
       };
       const response = await syncSchedulesApi.update(id, payload);
       return response.data;
@@ -157,6 +168,7 @@ function SyncSchedulesPage() {
       name: '',
       sync_type: 'selective',
       collection: '',
+      plugin_instance: '',
       cron_expression: '0 2 * * *',
       enabled: true,
     });
@@ -167,6 +179,7 @@ function SyncSchedulesPage() {
       name: schedule.name,
       sync_type: schedule.sync_type,
       collection: schedule.collection || '',
+      plugin_instance: schedule.plugin_instance || '',
       cron_expression: schedule.cron_expression,
       enabled: schedule.enabled,
     });
@@ -179,6 +192,12 @@ function SyncSchedulesPage() {
     // Validate: full_collection requires a collection
     if (formData.sync_type === 'full_collection' && !formData.collection) {
       setMessage({ type: 'error', text: 'Full collection sync requires selecting a collection' });
+      return;
+    }
+
+    // Validate: data_source requires a plugin instance
+    if (formData.sync_type === 'data_source' && !formData.plugin_instance) {
+      setMessage({ type: 'error', text: 'Data source sync requires selecting a plugin instance' });
       return;
     }
 
@@ -265,9 +284,11 @@ function SyncSchedulesPage() {
                     <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${
                       schedule.sync_type === 'full_collection'
                         ? 'bg-blue-100 text-blue-700'
+                        : schedule.sync_type === 'data_source'
+                        ? 'bg-green-100 text-green-700'
                         : 'bg-purple-100 text-purple-700'
                     }`}>
-                      {schedule.sync_type === 'full_collection' ? 'Full' : 'Selective'}
+                      {schedule.sync_type === 'full_collection' ? 'Full' : schedule.sync_type === 'data_source' ? 'Data Source' : 'Selective'}
                     </span>
                     <button
                       onClick={(e) => {
@@ -288,7 +309,15 @@ function SyncSchedulesPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
                   <div>
-                    <span className="font-medium">Collection:</span> {schedule.collection_name || 'All'}
+                    {schedule.sync_type === 'data_source' ? (
+                      <>
+                        <span className="font-medium">Plugin:</span> {schedule.plugin_instance_name || 'Not set'}
+                      </>
+                    ) : (
+                      <>
+                        <span className="font-medium">Collection:</span> {schedule.collection_name || 'All'}
+                      </>
+                    )}
                   </div>
                   <div>
                     <span className="font-medium">Next Run:</span> {formatDate(schedule.next_run_at)}
@@ -427,38 +456,71 @@ function SyncSchedulesPage() {
                 <label className="block text-sm font-medium text-gray-600 mb-1">Sync Type</label>
                 <select
                   value={formData.sync_type}
-                  onChange={(e) => setFormData({ ...formData, sync_type: e.target.value as 'full_collection' | 'selective' })}
+                  onChange={(e) => setFormData({ ...formData, sync_type: e.target.value as 'full_collection' | 'selective' | 'data_source', collection: '', plugin_instance: '' })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                 >
                   <option value="selective">Selective Sync (sync_enabled documents only)</option>
                   <option value="full_collection">Full Collection Sync (all documents)</option>
+                  <option value="data_source">Data Source Sync (sync data to Affinda)</option>
                 </select>
               </div>
 
-              {/* Collection */}
-              <div>
-                <label className="block text-sm font-medium text-gray-600 mb-1">
-                  Collection {formData.sync_type === 'full_collection' && <span className="text-red-500">*</span>}
-                </label>
-                <select
-                  value={formData.collection}
-                  onChange={(e) => setFormData({ ...formData, collection: e.target.value })}
-                  required={formData.sync_type === 'full_collection'}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                >
-                  <option value="">
-                    {formData.sync_type === 'full_collection' ? 'Select a collection' : 'All collections'}
-                  </option>
-                  {collections?.results?.map((col: Collection) => (
-                    <option key={col.id} value={col.id}>{col.name || col.identifier}</option>
-                  ))}
-                </select>
-                <p className="text-xs text-gray-500 mt-1">
-                  {formData.sync_type === 'full_collection'
-                    ? 'Required: Select which collection to sync'
-                    : 'Optional: Leave empty to sync all collections'}
-                </p>
-              </div>
+              {/* Collection - only for document sync types */}
+              {formData.sync_type !== 'data_source' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">
+                    Collection {formData.sync_type === 'full_collection' && <span className="text-red-500">*</span>}
+                  </label>
+                  <select
+                    value={formData.collection}
+                    onChange={(e) => setFormData({ ...formData, collection: e.target.value })}
+                    required={formData.sync_type === 'full_collection'}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  >
+                    <option value="">
+                      {formData.sync_type === 'full_collection' ? 'Select a collection' : 'All collections'}
+                    </option>
+                    {collections?.results?.map((col: Collection) => (
+                      <option key={col.id} value={col.id}>{col.name || col.identifier}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {formData.sync_type === 'full_collection'
+                      ? 'Required: Select which collection to sync'
+                      : 'Optional: Leave empty to sync all collections'}
+                  </p>
+                </div>
+              )}
+
+              {/* Plugin Instance - only for data source sync type */}
+              {formData.sync_type === 'data_source' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">
+                    Data Source Plugin <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={formData.plugin_instance}
+                    onChange={(e) => setFormData({ ...formData, plugin_instance: e.target.value })}
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  >
+                    <option value="">Select a data source plugin</option>
+                    {dataSourceInstances?.instances?.map((instance: DataSourceInstance) => (
+                      <option key={instance.id} value={instance.id}>
+                        {instance.name} ({instance.plugin_name} - {instance.component_name})
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Select the data source plugin instance to run
+                  </p>
+                  {dataSourceInstances?.instances?.length === 0 && (
+                    <p className="text-xs text-amber-600 mt-1">
+                      No data source plugins available. Install and configure a data source plugin first.
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Cron Expression */}
               <div>

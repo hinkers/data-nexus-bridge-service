@@ -45,16 +45,18 @@ class Plugin(models.Model):
 
 class PluginComponent(models.Model):
     """
-    Represents a component (Importer, PreProcessor, or PostProcessor) provided by a plugin.
+    Represents a component (Importer, PreProcessor, PostProcessor, or DataSource) provided by a plugin.
     Each plugin can register multiple components.
     """
     COMPONENT_TYPE_IMPORTER = 'importer'
     COMPONENT_TYPE_PREPROCESSOR = 'preprocessor'
     COMPONENT_TYPE_POSTPROCESSOR = 'postprocessor'
+    COMPONENT_TYPE_DATASOURCE = 'datasource'
     COMPONENT_TYPE_CHOICES = [
         (COMPONENT_TYPE_IMPORTER, 'Importer'),
         (COMPONENT_TYPE_PREPROCESSOR, 'Pre-Processor'),
         (COMPONENT_TYPE_POSTPROCESSOR, 'Post-Processor'),
+        (COMPONENT_TYPE_DATASOURCE, 'Data Source'),
     ]
 
     plugin = models.ForeignKey(
@@ -146,6 +148,13 @@ class PluginInstance(models.Model):
         blank=True,
         related_name='plugin_instances',
         help_text="Limit this instance to specific collections (empty = all collections)"
+    )
+
+    # For data source components: the Affinda data source to sync to
+    affinda_data_source = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Affinda data source identifier (for data source components)"
     )
 
     created_at = models.DateTimeField(default=timezone.now)

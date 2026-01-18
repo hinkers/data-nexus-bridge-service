@@ -180,6 +180,7 @@ class SyncHistory(models.Model):
     SYNC_TYPE_SELECTIVE = "selective"
     SYNC_TYPE_WEBHOOK = "webhook"
     SYNC_TYPE_SCHEDULED = "scheduled"
+    SYNC_TYPE_DATA_SOURCE = "data_source"
     SYNC_TYPE_CHOICES = [
         (SYNC_TYPE_WORKSPACES, "Workspaces"),
         (SYNC_TYPE_COLLECTIONS, "Collections"),
@@ -189,6 +190,7 @@ class SyncHistory(models.Model):
         (SYNC_TYPE_SELECTIVE, "Selective Sync"),
         (SYNC_TYPE_WEBHOOK, "Webhook Sync"),
         (SYNC_TYPE_SCHEDULED, "Scheduled Sync"),
+        (SYNC_TYPE_DATA_SOURCE, "Data Source Sync"),
     ]
 
     STATUS_PENDING = "pending"
@@ -215,6 +217,14 @@ class SyncHistory(models.Model):
         blank=True,
         related_name="sync_histories",
         help_text="Collection being synced (for collection-specific syncs)",
+    )
+    plugin_instance = models.ForeignKey(
+        "plugins.PluginInstance",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sync_histories",
+        help_text="Plugin instance being executed (for data source syncs)",
     )
     started_at = models.DateTimeField(default=timezone.now)
     completed_at = models.DateTimeField(null=True, blank=True)
@@ -669,9 +679,11 @@ class SyncSchedule(models.Model):
 
     SYNC_TYPE_FULL_COLLECTION = "full_collection"
     SYNC_TYPE_SELECTIVE = "selective"
+    SYNC_TYPE_DATA_SOURCE = "data_source"
     SYNC_TYPE_CHOICES = [
         (SYNC_TYPE_FULL_COLLECTION, "Full Collection Sync"),
         (SYNC_TYPE_SELECTIVE, "Selective Sync"),
+        (SYNC_TYPE_DATA_SOURCE, "Data Source Sync"),
     ]
 
     name = models.CharField(
@@ -690,6 +702,14 @@ class SyncSchedule(models.Model):
         blank=True,
         related_name="sync_schedules",
         help_text="Collection to sync (required for full_collection, optional for selective)",
+    )
+    plugin_instance = models.ForeignKey(
+        "plugins.PluginInstance",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="sync_schedules",
+        help_text="Plugin instance to run (required for data_source sync type)",
     )
     enabled = models.BooleanField(
         default=True,
@@ -717,6 +737,7 @@ class SyncSchedule(models.Model):
         indexes = [
             models.Index(fields=["enabled", "next_run_at"]),
             models.Index(fields=["collection"]),
+            models.Index(fields=["plugin_instance"]),
         ]
 
     def __str__(self) -> str:

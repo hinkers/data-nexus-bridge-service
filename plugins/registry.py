@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from django.conf import settings
 
 if TYPE_CHECKING:
-    from plugins.base import BasePlugin, BaseImporter, BasePreProcessor, BasePostProcessor
+    from plugins.base import BasePlugin, BaseImporter, BasePreProcessor, BasePostProcessor, BaseDataSource
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,7 @@ class PluginRegistry:
         self._importers: dict[str, type["BaseImporter"]] = {}
         self._preprocessors: dict[str, type["BasePreProcessor"]] = {}
         self._postprocessors: dict[str, type["BasePostProcessor"]] = {}
+        self._datasources: dict[str, type["BaseDataSource"]] = {}
         self._discovered = False
 
     def autodiscover(self) -> None:
@@ -60,7 +61,8 @@ class PluginRegistry:
             f"Plugin discovery complete: {len(self._plugins)} plugins, "
             f"{len(self._importers)} importers, "
             f"{len(self._preprocessors)} pre-processors, "
-            f"{len(self._postprocessors)} post-processors"
+            f"{len(self._postprocessors)} post-processors, "
+            f"{len(self._datasources)} data sources"
         )
 
     def _load_plugin_module(self, module_path: str) -> None:
@@ -151,6 +153,13 @@ class PluginRegistry:
             self._postprocessors[full_slug] = postprocessor_class
             logger.debug(f"  Registered post-processor: {postprocessor_meta.name} ({full_slug})")
 
+        # Register data sources
+        for datasource_class in plugin_class.get_datasources():
+            datasource_meta = datasource_class.get_meta()
+            full_slug = f"{plugin_slug}.{datasource_meta.slug}"
+            self._datasources[full_slug] = datasource_class
+            logger.debug(f"  Registered data source: {datasource_meta.name} ({full_slug})")
+
     def get_plugin(self, slug: str) -> type["BasePlugin"] | None:
         """Get a plugin class by slug."""
         return self._plugins.get(slug)
@@ -166,6 +175,10 @@ class PluginRegistry:
     def get_postprocessor(self, full_slug: str) -> type["BasePostProcessor"] | None:
         """Get a post-processor class by full slug."""
         return self._postprocessors.get(full_slug)
+
+    def get_datasource(self, full_slug: str) -> type["BaseDataSource"] | None:
+        """Get a data source class by full slug."""
+        return self._datasources.get(full_slug)
 
     def list_plugins(self, check_dependencies: bool = True) -> list[dict]:
         """
@@ -241,6 +254,15 @@ class PluginRegistry:
                     }
                     for post in plugin_class.get_postprocessors()
                 ],
+                'datasources': [
+                    {
+                        'slug': f"{slug}.{ds.get_meta().slug}",
+                        'name': ds.get_meta().name,
+                        'description': ds.get_meta().description,
+                        'config_schema': ds.get_meta().config_schema,
+                    }
+                    for ds in plugin_class.get_datasources()
+                ],
             })
         return result
 
@@ -281,6 +303,19 @@ class PluginRegistry:
                 'description': meta.description,
                 'config_schema': meta.config_schema,
                 'supported_events': postprocessor_class.get_supported_events(),
+            })
+        return result
+
+    def list_datasources(self) -> list[dict]:
+        """List all registered data sources."""
+        result = []
+        for full_slug, datasource_class in self._datasources.items():
+            meta = datasource_class.get_meta()
+            result.append({
+                'slug': full_slug,
+                'name': meta.name,
+                'description': meta.description,
+                'config_schema': meta.config_schema,
             })
         return result
 

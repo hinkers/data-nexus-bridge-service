@@ -5,6 +5,7 @@ This plugin demonstrates how to create:
 - An Importer (for uploading documents from a source)
 - A Pre-Processor (for modifying document metadata before processing)
 - A Post-Processor (for handling document events)
+- A Data Source (for syncing data to Affinda data sources)
 
 To use this plugin:
 1. Add 'plugins.contrib.example_plugin' to PLUGIN_MODULES in settings.py
@@ -18,9 +19,10 @@ import re
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from plugins.base import (BaseImporter, BasePlugin, BasePostProcessor,
-                          BasePreProcessor, ComponentMeta, ImportResult,
-                          PluginMeta, PostProcessResult, PreProcessResult)
+from plugins.base import (BaseDataSource, BaseImporter, BasePlugin,
+                          BasePostProcessor, BasePreProcessor, ComponentMeta,
+                          DataSourceRecord, ImportResult, PluginMeta,
+                          PostProcessResult, PreProcessResult)
 
 if TYPE_CHECKING:
     from affinda_bridge.models import Document
@@ -419,6 +421,233 @@ class WebhookNotifier(BasePostProcessor):
 
 
 # =============================================================================
+# DATA SOURCE: CSV Data Source
+# =============================================================================
+
+class CsvDataSource(BaseDataSource):
+    """
+    Example data source that reads records from a CSV file and syncs them to Affinda.
+
+    Configuration:
+    - csv_path: Path to the CSV file
+    - id_column: Column to use as record identifier
+    - data_columns: Columns to include in record data (empty = all)
+    """
+
+    @classmethod
+    def get_meta(cls) -> ComponentMeta:
+        return ComponentMeta(
+            slug="csv-datasource",
+            name="CSV Data Source",
+            description="Sync records from a CSV file to an Affinda data source",
+            config_schema={
+                "type": "object",
+                "properties": {
+                    "csv_path": {
+                        "type": "string",
+                        "description": "Path to the CSV file",
+                    },
+                    "id_column": {
+                        "type": "string",
+                        "description": "Column to use as record identifier",
+                        "default": "id",
+                    },
+                    "data_columns": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Columns to include in data (empty = all)",
+                        "default": [],
+                    },
+                    "encoding": {
+                        "type": "string",
+                        "description": "CSV file encoding",
+                        "default": "utf-8",
+                    },
+                },
+                "required": ["csv_path"],
+            }
+        )
+
+    def validate_config(self) -> list[str]:
+        errors = []
+        if not self.config.get("csv_path"):
+            errors.append("CSV path is required")
+        return errors
+
+    def fetch_records(self) -> list[DataSourceRecord]:
+        """
+        Read records from the CSV file.
+
+        Returns a list of DataSourceRecord objects to sync to Affinda.
+        """
+        import csv
+        import os
+
+        csv_path = self.config.get("csv_path", "")
+        id_column = self.config.get("id_column", "id")
+        data_columns = self.config.get("data_columns", [])
+        encoding = self.config.get("encoding", "utf-8")
+
+        if not os.path.isfile(csv_path):
+            logger.error(f"CSV file not found: {csv_path}")
+            return []
+
+        records = []
+
+        try:
+            with open(csv_path, 'r', encoding=encoding) as f:
+                reader = csv.DictReader(f)
+
+                for row in reader:
+                    # Get the identifier
+                    record_id = row.get(id_column)
+                    if not record_id:
+                        logger.warning(f"Skipping row without identifier: {row}")
+                        continue
+
+                    # Build data dict
+                    if data_columns:
+                        data = {col: row.get(col, "") for col in data_columns}
+                    else:
+                        data = dict(row)
+
+                    # Remove the ID column from data if it's there
+                    data.pop(id_column, None)
+
+                    records.append(DataSourceRecord(
+                        identifier=str(record_id),
+                        data=data,
+                    ))
+
+            logger.info(f"Loaded {len(records)} records from {csv_path}")
+
+        except Exception as e:
+            logger.error(f"Failed to read CSV file {csv_path}: {e}")
+
+        return records
+
+
+# =============================================================================
+# DATA SOURCE: JSON API Data Source
+# =============================================================================
+
+class JsonApiDataSource(BaseDataSource):
+    """
+    Example data source that fetches records from a JSON API endpoint.
+
+    Configuration:
+    - api_url: URL of the JSON API
+    - id_field: JSON field to use as record identifier
+    - data_path: JSONPath to the records array (e.g., "data.items")
+    - headers: Additional HTTP headers
+    """
+
+    @classmethod
+    def get_meta(cls) -> ComponentMeta:
+        return ComponentMeta(
+            slug="json-api-datasource",
+            name="JSON API Data Source",
+            description="Sync records from a JSON API to an Affinda data source",
+            config_schema={
+                "type": "object",
+                "properties": {
+                    "api_url": {
+                        "type": "string",
+                        "description": "URL of the JSON API endpoint",
+                        "format": "uri",
+                    },
+                    "id_field": {
+                        "type": "string",
+                        "description": "Field to use as record identifier",
+                        "default": "id",
+                    },
+                    "data_path": {
+                        "type": "string",
+                        "description": "Dot-notation path to records array (e.g., 'data.items')",
+                        "default": "",
+                    },
+                    "headers": {
+                        "type": "object",
+                        "description": "Additional HTTP headers",
+                        "default": {},
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Request timeout in seconds",
+                        "default": 30,
+                    },
+                },
+                "required": ["api_url"],
+            }
+        )
+
+    def validate_config(self) -> list[str]:
+        errors = []
+        if not self.config.get("api_url"):
+            errors.append("API URL is required")
+        return errors
+
+    def fetch_records(self) -> list[DataSourceRecord]:
+        """
+        Fetch records from the JSON API.
+        """
+        import httpx
+
+        api_url = self.config.get("api_url", "")
+        id_field = self.config.get("id_field", "id")
+        data_path = self.config.get("data_path", "")
+        headers = self.config.get("headers", {})
+        timeout = self.config.get("timeout", 30)
+
+        # Add API key from plugin config if available
+        if self.plugin_config.get("api_key"):
+            headers.setdefault("Authorization", f"Bearer {self.plugin_config['api_key']}")
+
+        records = []
+
+        try:
+            response = httpx.get(api_url, headers=headers, timeout=timeout)
+            response.raise_for_status()
+            data = response.json()
+
+            # Navigate to the records array using data_path
+            items = data
+            if data_path:
+                for key in data_path.split('.'):
+                    if isinstance(items, dict):
+                        items = items.get(key, [])
+                    else:
+                        items = []
+                        break
+
+            if not isinstance(items, list):
+                items = [items]
+
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+
+                record_id = item.get(id_field)
+                if not record_id:
+                    continue
+
+                # Create a copy without the ID field
+                record_data = {k: v for k, v in item.items() if k != id_field}
+
+                records.append(DataSourceRecord(
+                    identifier=str(record_id),
+                    data=record_data,
+                ))
+
+            logger.info(f"Fetched {len(records)} records from {api_url}")
+
+        except Exception as e:
+            logger.error(f"Failed to fetch from API {api_url}: {e}")
+
+        return records
+
+
+# =============================================================================
 # PLUGIN CLASS
 # =============================================================================
 
@@ -437,7 +666,7 @@ class ExamplePlugin(BasePlugin):
             name="Example Plugin",
             version="1.0.0",
             author="Data Nexus Bridge",
-            description="Demonstrates plugin system with sample importers, pre-processors, and post-processors",
+            description="Demonstrates plugin system with sample importers, pre-processors, post-processors, and data sources",
             dependencies=[
                 "httpx>=0.24",  # Used by WebhookNotifier for HTTP requests
             ],
@@ -476,3 +705,7 @@ class ExamplePlugin(BasePlugin):
     @classmethod
     def get_postprocessors(cls) -> list[type[BasePostProcessor]]:
         return [ArchiveOnApproval, WebhookNotifier]
+
+    @classmethod
+    def get_datasources(cls) -> list[type[BaseDataSource]]:
+        return [CsvDataSource, JsonApiDataSource]

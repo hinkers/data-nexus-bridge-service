@@ -6,7 +6,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from plugins.dependencies import check_dependencies, install_dependencies
-from plugins.executor import execute_importer
+from plugins.executor import execute_datasource, execute_importer
 from plugins.models import Plugin, PluginComponent, PluginExecutionLog, PluginInstance
 from plugins.registry import plugin_registry
 from plugins.serializers import (
@@ -139,6 +139,18 @@ class PluginViewSet(viewsets.ModelViewSet):
                 name=comp_meta.name,
                 description=comp_meta.description,
                 python_path=f"{postprocessor_class.__module__}.{postprocessor_class.__name__}",
+                config_schema=comp_meta.config_schema,
+            )
+
+        for datasource_class in plugin_class.get_datasources():
+            comp_meta = datasource_class.get_meta()
+            PluginComponent.objects.create(
+                plugin=plugin,
+                component_type=PluginComponent.COMPONENT_TYPE_DATASOURCE,
+                slug=comp_meta.slug,
+                name=comp_meta.name,
+                description=comp_meta.description,
+                python_path=f"{datasource_class.__module__}.{datasource_class.__name__}",
                 config_schema=comp_meta.config_schema,
             )
 
@@ -327,6 +339,15 @@ class PluginComponentViewSet(viewsets.ReadOnlyModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
+    @action(detail=False, methods=['get'])
+    def datasources(self, request):
+        """List all data source components."""
+        queryset = self.get_queryset().filter(
+            component_type=PluginComponent.COMPONENT_TYPE_DATASOURCE
+        )
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
 
 class PluginInstanceViewSet(viewsets.ModelViewSet):
     """
@@ -373,29 +394,51 @@ class PluginInstanceViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def run(self, request, pk=None):
         """
-        Run an importer instance manually.
+        Run an importer or data source instance manually.
 
-        Only works for importer instances.
+        Works for importer and data source instances.
         """
         instance = self.get_object()
 
-        if instance.component.component_type != PluginComponent.COMPONENT_TYPE_IMPORTER:
+        if instance.component.component_type == PluginComponent.COMPONENT_TYPE_IMPORTER:
+            try:
+                results = execute_importer(instance)
+                serializer = ImportResultSerializer(results, many=True)
+                return Response({
+                    'success': True,
+                    'results': serializer.data,
+                })
+            except Exception as e:
+                return Response(
+                    {'success': False, 'detail': str(e)},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+        elif instance.component.component_type == PluginComponent.COMPONENT_TYPE_DATASOURCE:
+            if not instance.affinda_data_source:
+                return Response(
+                    {'detail': 'Data source instance has no Affinda data source configured'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            try:
+                result = execute_datasource(instance)
+                return Response({
+                    'success': result.success,
+                    'records_synced': result.records_synced,
+                    'records_created': result.records_created,
+                    'records_updated': result.records_updated,
+                    'records_failed': result.records_failed,
+                    'errors': result.errors,
+                    'message': result.message,
+                })
+            except Exception as e:
+                return Response(
+                    {'success': False, 'detail': str(e)},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+        else:
             return Response(
-                {'detail': 'Only importer instances can be run manually'},
+                {'detail': 'Only importer and data source instances can be run manually'},
                 status=status.HTTP_400_BAD_REQUEST
-            )
-
-        try:
-            results = execute_importer(instance)
-            serializer = ImportResultSerializer(results, many=True)
-            return Response({
-                'success': True,
-                'results': serializer.data,
-            })
-        except Exception as e:
-            return Response(
-                {'success': False, 'detail': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
     @action(detail=False, methods=['get'])
@@ -421,6 +464,15 @@ class PluginInstanceViewSet(viewsets.ModelViewSet):
         """List all post-processor instances."""
         queryset = self.get_queryset().filter(
             component__component_type=PluginComponent.COMPONENT_TYPE_POSTPROCESSOR
+        )
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def datasources(self, request):
+        """List all data source instances."""
+        queryset = self.get_queryset().filter(
+            component__component_type=PluginComponent.COMPONENT_TYPE_DATASOURCE
         )
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)

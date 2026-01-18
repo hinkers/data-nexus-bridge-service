@@ -746,9 +746,9 @@ class SyncScheduleViewSet(viewsets.ModelViewSet):
     - GET /api/sync-schedules/{id}/history/ - Get run history for schedule
     """
 
-    queryset = SyncSchedule.objects.select_related("collection").all()
+    queryset = SyncSchedule.objects.select_related("collection", "plugin_instance").all()
     serializer_class = SyncScheduleSerializer
-    filterset_fields = ["collection", "sync_type", "enabled"]
+    filterset_fields = ["collection", "sync_type", "enabled", "plugin_instance"]
 
     @action(detail=True, methods=["post"], url_path="run-now")
     def run_now(self, request, pk=None):
@@ -760,6 +760,12 @@ class SyncScheduleViewSet(viewsets.ModelViewSet):
         if not schedule.collection and schedule.sync_type == "full_collection":
             return Response(
                 {"error": "Cannot run full collection sync without a collection"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not schedule.plugin_instance and schedule.sync_type == "data_source":
+            return Response(
+                {"error": "Cannot run data source sync without a plugin instance"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -805,5 +811,30 @@ class SyncScheduleViewSet(viewsets.ModelViewSet):
             "sync_types": [
                 {"value": "full_collection", "label": "Full Collection Sync"},
                 {"value": "selective", "label": "Selective Sync"},
+                {"value": "data_source", "label": "Data Source Sync"},
             ],
+        })
+
+    @action(detail=False, methods=["get"], url_path="data-source-instances")
+    def data_source_instances(self, request):
+        """Get available data source plugin instances for scheduling."""
+        from plugins.models import PluginComponent, PluginInstance
+
+        instances = PluginInstance.objects.filter(
+            enabled=True,
+            component__component_type=PluginComponent.COMPONENT_TYPE_DATASOURCE,
+            component__plugin__enabled=True,
+        ).select_related("component", "component__plugin")
+
+        return Response({
+            "instances": [
+                {
+                    "id": instance.id,
+                    "name": instance.name,
+                    "component_name": instance.component.name,
+                    "plugin_name": instance.component.plugin.name,
+                    "affinda_data_source": instance.affinda_data_source,
+                }
+                for instance in instances
+            ]
         })

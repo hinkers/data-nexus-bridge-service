@@ -67,6 +67,26 @@ class PostProcessResult:
     message: str = ""
 
 
+@dataclass
+class DataSourceRecord:
+    """A single record to push to an Affinda data source."""
+    identifier: str  # Unique identifier for this record
+    data: dict  # The record data as key-value pairs
+    metadata: dict = field(default_factory=dict)
+
+
+@dataclass
+class DataSourceSyncResult:
+    """Result of a data source sync operation."""
+    success: bool
+    records_synced: int = 0
+    records_created: int = 0
+    records_updated: int = 0
+    records_failed: int = 0
+    errors: list[str] = field(default_factory=list)
+    message: str = ""
+
+
 class BasePlugin(ABC):
     """
     Base class for all plugins.
@@ -93,6 +113,11 @@ class BasePlugin(ABC):
     @classmethod
     def get_postprocessors(cls) -> list[type["BasePostProcessor"]]:
         """Return list of post-processor classes provided by this plugin."""
+        return []
+
+    @classmethod
+    def get_datasources(cls) -> list[type["BaseDataSource"]]:
+        """Return list of data source classes provided by this plugin."""
         return []
 
     def __init__(self, config: dict | None = None):
@@ -306,3 +331,141 @@ class AffindaDocumentHelper:
     def get_document(self, document_identifier: str) -> dict:
         """Get full document data from Affinda."""
         raise NotImplementedError
+
+
+class AffindaDataSourceHelper:
+    """Helper for interacting with Affinda data sources."""
+
+    def get_data_sources(self) -> list[dict]:
+        """Get list of available data sources from Affinda."""
+        raise NotImplementedError
+
+    def get_data_source(self, identifier: str) -> dict:
+        """Get a specific data source by identifier."""
+        raise NotImplementedError
+
+    def sync_records(
+        self,
+        data_source_identifier: str,
+        records: list["DataSourceRecord"],
+        replace_all: bool = False,
+    ) -> dict:
+        """
+        Sync records to an Affinda data source.
+
+        Args:
+            data_source_identifier: The Affinda data source identifier
+            records: List of records to sync
+            replace_all: If True, replace all existing records; if False, upsert
+
+        Returns:
+            Sync result from Affinda API
+        """
+        raise NotImplementedError
+
+    def delete_records(self, data_source_identifier: str, record_identifiers: list[str]) -> dict:
+        """Delete specific records from a data source."""
+        raise NotImplementedError
+
+    def get_records(
+        self,
+        data_source_identifier: str,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict:
+        """Get records from a data source."""
+        raise NotImplementedError
+
+
+class BaseDataSource(ABC):
+    """
+    Base class for data sources.
+
+    Data sources are responsible for syncing data TO Affinda data sources from external systems
+    (databases, APIs, files, etc.). They can be scheduled or run on-demand.
+    """
+
+    @classmethod
+    @abstractmethod
+    def get_meta(cls) -> ComponentMeta:
+        """Return component metadata."""
+        pass
+
+    def __init__(
+        self,
+        plugin_config: dict,
+        instance_config: dict,
+        data_source_helper: "AffindaDataSourceHelper",
+    ):
+        """
+        Initialize the data source.
+
+        Args:
+            plugin_config: Plugin-level configuration
+            instance_config: Instance-specific configuration
+            data_source_helper: Helper for interacting with Affinda data sources
+        """
+        self.plugin_config = plugin_config
+        self.config = instance_config
+        self.data_source_helper = data_source_helper
+
+    def validate_config(self) -> list[str]:
+        """Validate the instance configuration."""
+        return []
+
+    @abstractmethod
+    def fetch_records(self) -> list[DataSourceRecord]:
+        """
+        Fetch records from the external data source.
+
+        This method should connect to the external system and retrieve records
+        that should be synced to Affinda.
+
+        Returns:
+            List of DataSourceRecord objects to sync
+        """
+        pass
+
+    def sync(self, data_source_identifier: str) -> DataSourceSyncResult:
+        """
+        Execute the full sync operation.
+
+        This is the main entry point for running a data source sync.
+        It fetches records and pushes them to Affinda.
+
+        Args:
+            data_source_identifier: The Affinda data source to sync to
+
+        Returns:
+            DataSourceSyncResult with sync statistics
+        """
+        try:
+            records = self.fetch_records()
+
+            if not records:
+                return DataSourceSyncResult(
+                    success=True,
+                    message="No records to sync",
+                )
+
+            result = self.data_source_helper.sync_records(
+                data_source_identifier=data_source_identifier,
+                records=records,
+                replace_all=self.config.get("replace_all", False),
+            )
+
+            return DataSourceSyncResult(
+                success=True,
+                records_synced=len(records),
+                records_created=result.get("created", 0),
+                records_updated=result.get("updated", 0),
+                records_failed=result.get("failed", 0),
+                message=f"Successfully synced {len(records)} records",
+            )
+
+        except Exception as e:
+            return DataSourceSyncResult(
+                success=False,
+                errors=[str(e)],
+                message=f"Sync failed: {str(e)}",
+            )

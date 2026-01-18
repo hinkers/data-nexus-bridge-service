@@ -507,6 +507,7 @@ class SyncScheduleSerializer(serializers.ModelSerializer):
     """Serializer for sync schedules."""
 
     collection_name = serializers.CharField(source="collection.name", read_only=True, allow_null=True)
+    plugin_instance_name = serializers.CharField(source="plugin_instance.name", read_only=True, allow_null=True)
     cron_description = serializers.SerializerMethodField()
     recent_runs = serializers.SerializerMethodField()
 
@@ -518,6 +519,8 @@ class SyncScheduleSerializer(serializers.ModelSerializer):
             "sync_type",
             "collection",
             "collection_name",
+            "plugin_instance",
+            "plugin_instance_name",
             "enabled",
             "cron_expression",
             "cron_description",
@@ -549,12 +552,26 @@ class SyncScheduleSerializer(serializers.ModelSerializer):
         """Validate schedule configuration."""
         sync_type = data.get("sync_type", getattr(self.instance, "sync_type", None))
         collection = data.get("collection", getattr(self.instance, "collection", None))
+        plugin_instance = data.get("plugin_instance", getattr(self.instance, "plugin_instance", None))
 
         # Full collection sync requires a collection
         if sync_type == SyncSchedule.SYNC_TYPE_FULL_COLLECTION and not collection:
             raise serializers.ValidationError({
                 "collection": "Collection is required for full collection sync"
             })
+
+        # Data source sync requires a plugin instance
+        if sync_type == SyncSchedule.SYNC_TYPE_DATA_SOURCE:
+            if not plugin_instance:
+                raise serializers.ValidationError({
+                    "plugin_instance": "Plugin instance is required for data source sync"
+                })
+            # Validate that the plugin instance is a data source
+            from plugins.models import PluginComponent
+            if plugin_instance.component.component_type != PluginComponent.COMPONENT_TYPE_DATASOURCE:
+                raise serializers.ValidationError({
+                    "plugin_instance": "Plugin instance must be a data source component"
+                })
 
         # Validate cron expression
         cron_expression = data.get("cron_expression")

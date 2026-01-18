@@ -301,3 +301,230 @@ class AffindaDocumentHelper:
         except Exception as e:
             logger.error(f"Failed to update document {document_identifier}: {e}")
             raise
+
+
+class AffindaDataSourceHelper:
+    """
+    Helper for interacting with Affinda data sources.
+
+    Used by data source plugins to sync data to Affinda data sources.
+    """
+
+    def __init__(self, client: AffindaClient | None = None):
+        """
+        Initialize the data source helper.
+
+        Args:
+            client: Optional existing Affinda client
+        """
+        self._client = client
+        self._owns_client = client is None
+
+    def __enter__(self) -> "AffindaDataSourceHelper":
+        if self._client is None:
+            self._client = AffindaClient()
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        if self._owns_client and self._client:
+            self._client.close()
+
+    def get_data_sources(self, organization: str | None = None) -> list[dict]:
+        """
+        Get list of available data sources from Affinda.
+
+        Args:
+            organization: Optional organization identifier to filter by
+
+        Returns:
+            List of data source dictionaries
+        """
+        if self._client is None:
+            raise RuntimeError("Helper not initialized")
+
+        try:
+            # Use the Affinda SDK to list data sources
+            response = self._client._client.get_all_data_sources(organization=organization)
+
+            # Convert to list of dicts
+            if hasattr(response, '__iter__'):
+                return [self._client._model_to_dict(ds) for ds in response]
+            return []
+
+        except Exception as e:
+            logger.error(f"Failed to get data sources: {e}")
+            raise
+
+    def get_data_source(self, identifier: str) -> dict:
+        """
+        Get a specific data source by identifier.
+
+        Args:
+            identifier: The data source identifier
+
+        Returns:
+            Data source dictionary
+        """
+        if self._client is None:
+            raise RuntimeError("Helper not initialized")
+
+        try:
+            response = self._client._client.get_data_source(identifier=identifier)
+            return self._client._model_to_dict(response)
+
+        except Exception as e:
+            logger.error(f"Failed to get data source {identifier}: {e}")
+            raise
+
+    def sync_records(
+        self,
+        data_source_identifier: str,
+        records: list,
+        replace_all: bool = False,
+    ) -> dict:
+        """
+        Sync records to an Affinda data source.
+
+        Args:
+            data_source_identifier: The Affinda data source identifier
+            records: List of DataSourceRecord objects to sync
+            replace_all: If True, replace all existing records; if False, upsert
+
+        Returns:
+            Dict with sync results (created, updated, failed counts)
+        """
+        if self._client is None:
+            raise RuntimeError("Helper not initialized")
+
+        try:
+            # Convert DataSourceRecord objects to the format expected by Affinda
+            # Each record should have an identifier and data fields
+            record_data = []
+            for record in records:
+                record_data.append({
+                    "identifier": record.identifier,
+                    "data": record.data,
+                })
+
+            # Use batch create/update endpoint
+            # The exact API call depends on the Affinda SDK version
+            response = self._client._client.create_data_source_data(
+                identifier=data_source_identifier,
+                data=record_data,
+            )
+
+            result = self._client._model_to_dict(response) if response else {}
+
+            logger.info(
+                f"Synced {len(records)} records to data source {data_source_identifier}"
+            )
+
+            return {
+                "created": result.get("created", 0),
+                "updated": result.get("updated", 0),
+                "failed": result.get("failed", 0),
+                "total": len(records),
+            }
+
+        except Exception as e:
+            logger.error(
+                f"Failed to sync records to data source {data_source_identifier}: {e}"
+            )
+            raise
+
+    def delete_records(
+        self,
+        data_source_identifier: str,
+        record_identifiers: list[str],
+    ) -> dict:
+        """
+        Delete specific records from a data source.
+
+        Args:
+            data_source_identifier: The data source identifier
+            record_identifiers: List of record identifiers to delete
+
+        Returns:
+            Dict with deletion results
+        """
+        if self._client is None:
+            raise RuntimeError("Helper not initialized")
+
+        try:
+            deleted = 0
+            errors = []
+
+            for record_id in record_identifiers:
+                try:
+                    self._client._client.delete_data_source_data(
+                        identifier=data_source_identifier,
+                        data_identifier=record_id,
+                    )
+                    deleted += 1
+                except Exception as e:
+                    errors.append(f"{record_id}: {str(e)}")
+
+            logger.info(
+                f"Deleted {deleted}/{len(record_identifiers)} records from "
+                f"data source {data_source_identifier}"
+            )
+
+            return {
+                "deleted": deleted,
+                "failed": len(errors),
+                "errors": errors,
+            }
+
+        except Exception as e:
+            logger.error(
+                f"Failed to delete records from data source {data_source_identifier}: {e}"
+            )
+            raise
+
+    def get_records(
+        self,
+        data_source_identifier: str,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict:
+        """
+        Get records from a data source.
+
+        Args:
+            data_source_identifier: The data source identifier
+            limit: Maximum number of records to return
+            offset: Offset for pagination
+
+        Returns:
+            Dict with records and pagination info
+        """
+        if self._client is None:
+            raise RuntimeError("Helper not initialized")
+
+        try:
+            response = self._client._client.get_all_data_source_data(
+                identifier=data_source_identifier,
+                limit=limit,
+                offset=offset,
+            )
+
+            # Convert response to list of dicts
+            if hasattr(response, 'results'):
+                records = [self._client._model_to_dict(r) for r in response.results]
+                return {
+                    "count": getattr(response, 'count', len(records)),
+                    "records": records,
+                }
+            elif hasattr(response, '__iter__'):
+                records = [self._client._model_to_dict(r) for r in response]
+                return {
+                    "count": len(records),
+                    "records": records,
+                }
+            return {"count": 0, "records": []}
+
+        except Exception as e:
+            logger.error(
+                f"Failed to get records from data source {data_source_identifier}: {e}"
+            )
+            raise
