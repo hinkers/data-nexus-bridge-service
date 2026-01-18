@@ -810,3 +810,83 @@ class SyncScheduleRun(models.Model):
 
     def __str__(self) -> str:
         return f"{self.schedule.name} - {self.triggered_by} at {self.started_at}"
+
+
+class SyncLogEntry(models.Model):
+    """
+    Detailed log entries for sync operations.
+    Captures document-level errors, warnings, and info for debugging sync failures.
+    """
+
+    LEVEL_DEBUG = "debug"
+    LEVEL_INFO = "info"
+    LEVEL_WARNING = "warning"
+    LEVEL_ERROR = "error"
+    LEVEL_CHOICES = [
+        (LEVEL_DEBUG, "Debug"),
+        (LEVEL_INFO, "Info"),
+        (LEVEL_WARNING, "Warning"),
+        (LEVEL_ERROR, "Error"),
+    ]
+
+    sync_history = models.ForeignKey(
+        SyncHistory,
+        on_delete=models.CASCADE,
+        related_name="log_entries",
+    )
+    level = models.CharField(
+        max_length=16,
+        choices=LEVEL_CHOICES,
+        default=LEVEL_INFO,
+    )
+    message = models.TextField()
+    document_identifier = models.CharField(
+        max_length=64,
+        blank=True,
+        help_text="Document identifier if this log entry relates to a specific document",
+    )
+    details = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Additional structured data (exception details, API response, etc.)",
+    )
+    timestamp = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["timestamp"]
+        indexes = [
+            models.Index(fields=["sync_history", "timestamp"]),
+            models.Index(fields=["sync_history", "level"]),
+            models.Index(fields=["document_identifier"]),
+        ]
+
+    def __str__(self) -> str:
+        doc_info = f" [{self.document_identifier}]" if self.document_identifier else ""
+        return f"[{self.level.upper()}]{doc_info} {self.message[:100]}"
+
+    @classmethod
+    def log(cls, sync_history, level: str, message: str, document_identifier: str = "", details: dict | None = None):
+        """Helper method to create a log entry."""
+        return cls.objects.create(
+            sync_history=sync_history,
+            level=level,
+            message=message,
+            document_identifier=document_identifier,
+            details=details or {},
+        )
+
+    @classmethod
+    def debug(cls, sync_history, message: str, document_identifier: str = "", details: dict | None = None):
+        return cls.log(sync_history, cls.LEVEL_DEBUG, message, document_identifier, details)
+
+    @classmethod
+    def info(cls, sync_history, message: str, document_identifier: str = "", details: dict | None = None):
+        return cls.log(sync_history, cls.LEVEL_INFO, message, document_identifier, details)
+
+    @classmethod
+    def warning(cls, sync_history, message: str, document_identifier: str = "", details: dict | None = None):
+        return cls.log(sync_history, cls.LEVEL_WARNING, message, document_identifier, details)
+
+    @classmethod
+    def error(cls, sync_history, message: str, document_identifier: str = "", details: dict | None = None):
+        return cls.log(sync_history, cls.LEVEL_ERROR, message, document_identifier, details)

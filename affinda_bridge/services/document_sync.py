@@ -10,7 +10,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from affinda_bridge.clients import AffindaClient
-from affinda_bridge.models import Collection, Document, SyncHistory
+from affinda_bridge.models import Collection, Document, SyncHistory, SyncLogEntry
 from affinda_bridge.services.field_value_sync import sync_document_field_values
 
 logger = logging.getLogger(__name__)
@@ -65,6 +65,7 @@ def full_collection_sync(
         Total number of documents synced
     """
     logger.info(f"Starting full collection sync for {collection.name}")
+    SyncLogEntry.info(sync_history, f"Starting full collection sync for {collection.name}")
 
     sync_history.status = SyncHistory.STATUS_IN_PROGRESS
     sync_history.save(update_fields=["status"])
@@ -88,9 +89,12 @@ def full_collection_sync(
             sync_history.save(update_fields=["total_documents"])
 
             logger.info(f"Found {total_count} documents in collection {collection.name}")
+            SyncLogEntry.info(sync_history, f"Found {total_count} documents to sync")
 
             # Paginate through all documents
+            batch_number = 0
             while True:
+                batch_number += 1
                 response = client.list_documents(
                     collection=collection.identifier,
                     offset=offset,
@@ -102,10 +106,16 @@ def full_collection_sync(
                 if not documents:
                     break
 
+                SyncLogEntry.debug(
+                    sync_history,
+                    f"Processing batch {batch_number} ({len(documents)} documents, offset {offset})"
+                )
+
                 for doc_data in documents:
+                    doc_identifier = doc_data.get("identifier", "unknown")
                     try:
                         existing = Document.objects.filter(
-                            identifier=doc_data.get("identifier")
+                            identifier=doc_identifier
                         ).exists()
 
                         document = _create_or_update_document(doc_data)
@@ -117,12 +127,28 @@ def full_collection_sync(
                                 documents_updated += 1
                             else:
                                 documents_created += 1
+                                SyncLogEntry.debug(
+                                    sync_history,
+                                    f"Created new document",
+                                    document_identifier=doc_identifier
+                                )
                         else:
                             documents_failed += 1
+                            SyncLogEntry.warning(
+                                sync_history,
+                                f"Failed to process document (no data returned)",
+                                document_identifier=doc_identifier
+                            )
 
                     except Exception as e:
-                        logger.error(f"Failed to sync document: {e}")
+                        logger.error(f"Failed to sync document {doc_identifier}: {e}")
                         documents_failed += 1
+                        SyncLogEntry.error(
+                            sync_history,
+                            f"Failed to sync document: {str(e)}",
+                            document_identifier=doc_identifier,
+                            details={"exception_type": type(e).__name__, "exception_message": str(e)}
+                        )
 
                 # Update progress
                 offset += len(documents)
@@ -160,19 +186,28 @@ def full_collection_sync(
         sync_history.progress_percent = 100
         sync_history.save()
 
-        logger.info(
-            f"Full collection sync completed for {collection.name}: "
+        summary_msg = (
+            f"Full collection sync completed: "
             f"{documents_created} created, {documents_updated} updated, "
             f"{documents_failed} failed"
         )
+        logger.info(f"{summary_msg} for {collection.name}")
+        SyncLogEntry.info(sync_history, summary_msg)
 
     except Exception as e:
+        import traceback
+        error_traceback = traceback.format_exc()
         logger.exception(f"Full collection sync failed for {collection.name}: {e}")
         sync_history.status = SyncHistory.STATUS_FAILED
         sync_history.success = False
         sync_history.error_message = str(e)
         sync_history.completed_at = timezone.now()
         sync_history.save()
+        SyncLogEntry.error(
+            sync_history,
+            f"Sync failed: {str(e)}",
+            details={"exception_type": type(e).__name__, "traceback": error_traceback}
+        )
 
     return total_synced
 
@@ -193,6 +228,8 @@ def selective_document_sync(
         Total number of documents synced
     """
     logger.info("Starting selective document sync")
+    collection_info = f" for collection {collection_id}" if collection_id else " (all collections)"
+    SyncLogEntry.info(sync_history, f"Starting selective document sync{collection_info}")
 
     sync_history.status = SyncHistory.STATUS_IN_PROGRESS
     sync_history.save(update_fields=["status"])
@@ -209,6 +246,7 @@ def selective_document_sync(
     sync_history.save(update_fields=["total_documents"])
 
     logger.info(f"Found {total_count} documents to sync")
+    SyncLogEntry.info(sync_history, f"Found {total_count} documents with sync_enabled=True")
 
     total_synced = 0
     documents_updated = 0
@@ -227,12 +265,28 @@ def selective_document_sync(
                             documents_updated += 1
                         else:
                             documents_failed += 1
+                            SyncLogEntry.warning(
+                                sync_history,
+                                "Failed to process document (no data returned)",
+                                document_identifier=identifier
+                            )
                     else:
                         documents_failed += 1
+                        SyncLogEntry.warning(
+                            sync_history,
+                            "Document not found in Affinda API",
+                            document_identifier=identifier
+                        )
 
                 except Exception as e:
                     logger.error(f"Failed to sync document {identifier}: {e}")
                     documents_failed += 1
+                    SyncLogEntry.error(
+                        sync_history,
+                        f"Failed to sync document: {str(e)}",
+                        document_identifier=identifier,
+                        details={"exception_type": type(e).__name__, "exception_message": str(e)}
+                    )
 
                 # Update progress
                 progress = min(int(((i + 1) / total_count) * 100), 100) if total_count > 0 else 100
@@ -254,18 +308,24 @@ def selective_document_sync(
         sync_history.progress_percent = 100
         sync_history.save()
 
-        logger.info(
-            f"Selective sync completed: {documents_updated} updated, "
-            f"{documents_failed} failed"
-        )
+        summary_msg = f"Selective sync completed: {documents_updated} updated, {documents_failed} failed"
+        logger.info(summary_msg)
+        SyncLogEntry.info(sync_history, summary_msg)
 
     except Exception as e:
+        import traceback
+        error_traceback = traceback.format_exc()
         logger.exception(f"Selective sync failed: {e}")
         sync_history.status = SyncHistory.STATUS_FAILED
         sync_history.success = False
         sync_history.error_message = str(e)
         sync_history.completed_at = timezone.now()
         sync_history.save()
+        SyncLogEntry.error(
+            sync_history,
+            f"Sync failed: {str(e)}",
+            details={"exception_type": type(e).__name__, "traceback": error_traceback}
+        )
 
     return total_synced
 

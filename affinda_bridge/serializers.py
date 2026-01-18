@@ -10,6 +10,7 @@ from affinda_bridge.models import (
     ExternalTableColumn,
     FieldDefinition,
     SyncHistory,
+    SyncLogEntry,
     SyncSchedule,
     SyncScheduleRun,
     SystemSettings,
@@ -239,6 +240,8 @@ class DocumentListSerializer(serializers.ModelSerializer):
 
 class SyncHistorySerializer(serializers.ModelSerializer):
     collection_name = serializers.CharField(source="collection.name", read_only=True, allow_null=True)
+    log_entries_count = serializers.SerializerMethodField()
+    error_count = serializers.SerializerMethodField()
 
     class Meta:
         model = SyncHistory
@@ -258,8 +261,31 @@ class SyncHistorySerializer(serializers.ModelSerializer):
             "documents_updated",
             "documents_failed",
             "progress_percent",
+            "log_entries_count",
+            "error_count",
         ]
         read_only_fields = ["id", "started_at"]
+
+    def get_log_entries_count(self, obj: SyncHistory) -> int:
+        return obj.log_entries.count()
+
+    def get_error_count(self, obj: SyncHistory) -> int:
+        return obj.log_entries.filter(level__in=["error", "warning"]).count()
+
+
+class SyncLogEntrySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SyncLogEntry
+        fields = [
+            "id",
+            "sync_history",
+            "level",
+            "message",
+            "document_identifier",
+            "details",
+            "timestamp",
+        ]
+        read_only_fields = ["id", "timestamp"]
 
 
 class DocumentFieldValueSerializer(serializers.ModelSerializer):
@@ -483,19 +509,25 @@ class ExternalTableCreateSerializer(serializers.ModelSerializer):
 class SyncScheduleRunSerializer(serializers.ModelSerializer):
     """Serializer for sync schedule run history."""
 
+    schedule_name = serializers.CharField(source="schedule.name", read_only=True)
+    sync_type = serializers.CharField(source="schedule.sync_type", read_only=True)
     sync_history_status = serializers.CharField(source="sync_history.status", read_only=True)
     sync_history_success = serializers.BooleanField(source="sync_history.success", read_only=True)
     documents_synced = serializers.IntegerField(source="sync_history.records_synced", read_only=True)
+    error_message = serializers.CharField(source="sync_history.error_message", read_only=True, allow_null=True)
 
     class Meta:
         model = SyncScheduleRun
         fields = [
             "id",
             "schedule",
+            "schedule_name",
+            "sync_type",
             "sync_history",
             "sync_history_status",
             "sync_history_success",
             "documents_synced",
+            "error_message",
             "triggered_by",
             "started_at",
             "completed_at",

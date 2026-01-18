@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { syncSchedulesApi, collectionsApi, type SyncSchedule, type SyncScheduleRun, type Collection, type DataSourceInstance } from '../api/client';
+import { syncSchedulesApi, syncHistoryApi, collectionsApi, type SyncSchedule, type SyncScheduleRun, type Collection, type DataSourceInstance } from '../api/client';
 
 function SyncSchedulesPage() {
   const queryClient = useQueryClient();
@@ -57,11 +57,35 @@ function SyncSchedulesPage() {
   const { data: scheduleHistory, isLoading: loadingHistory } = useQuery({
     queryKey: ['sync-schedules', selectedSchedule?.id, 'history'],
     queryFn: async () => {
-      if (!selectedSchedule) return { results: [] };
+      if (!selectedSchedule) return null;
       const response = await syncSchedulesApi.getHistory(selectedSchedule.id);
       return response.data;
     },
     enabled: !!selectedSchedule,
+  });
+
+  // Fetch all runs when no schedule is selected
+  const { data: allRuns, isLoading: loadingAllRuns } = useQuery({
+    queryKey: ['sync-schedules', 'all-runs'],
+    queryFn: async () => {
+      const response = await syncSchedulesApi.getAllRuns(50);
+      return response.data;
+    },
+    enabled: !selectedSchedule,
+  });
+
+  // State for logs modal
+  const [selectedSyncHistoryId, setSelectedSyncHistoryId] = useState<number | null>(null);
+
+  // Query for sync logs
+  const { data: syncLogs, isLoading: loadingLogs } = useQuery({
+    queryKey: ['sync-logs', selectedSyncHistoryId],
+    queryFn: async () => {
+      if (!selectedSyncHistoryId) return null;
+      const response = await syncHistoryApi.getLogs(selectedSyncHistoryId);
+      return response.data;
+    },
+    enabled: !!selectedSyncHistoryId,
   });
 
   // Mutations
@@ -367,10 +391,78 @@ function SyncSchedulesPage() {
 
         {/* Schedule Details / History */}
         <div>
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Run History</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold text-gray-900">
+              {selectedSchedule ? 'Run History' : 'Recent Runs (All Schedules)'}
+            </h2>
+            {selectedSchedule && (
+              <button
+                onClick={() => setSelectedSchedule(null)}
+                className="text-sm text-purple-600 hover:text-purple-800"
+              >
+                View all runs
+              </button>
+            )}
+          </div>
+
+          {/* Show all runs when no schedule is selected */}
           {!selectedSchedule ? (
-            <div className="bg-white rounded-xl p-8 shadow-sm text-center text-gray-500">
-              Select a schedule to view run history
+            <div className="bg-white rounded-xl p-6 shadow-sm">
+              {loadingAllRuns ? (
+                <div className="text-center text-gray-500 py-4">Loading runs...</div>
+              ) : allRuns?.runs && allRuns.runs.length > 0 ? (
+                <div className="space-y-3 max-h-[500px] overflow-y-auto">
+                  {allRuns.runs.map((run: SyncScheduleRun) => (
+                    <div
+                      key={run.id}
+                      className="p-3 bg-gray-50 rounded-lg hover:bg-gray-100 cursor-pointer transition"
+                      onClick={() => run.sync_history && setSelectedSyncHistoryId(run.sync_history)}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2 py-0.5 text-xs rounded font-medium ${
+                            run.sync_history_status === 'completed'
+                              ? 'bg-green-100 text-green-700'
+                              : run.sync_history_status === 'failed'
+                              ? 'bg-red-100 text-red-700'
+                              : 'bg-blue-100 text-blue-700'
+                          }`}>
+                            {run.sync_history_status || 'Unknown'}
+                          </span>
+                          <span className={`px-2 py-0.5 text-xs rounded font-medium ${
+                            run.sync_type === 'full_collection'
+                              ? 'bg-blue-100 text-blue-700'
+                              : run.sync_type === 'data_source'
+                              ? 'bg-green-100 text-green-700'
+                              : 'bg-purple-100 text-purple-700'
+                          }`}>
+                            {run.sync_type === 'full_collection' ? 'Full' : run.sync_type === 'data_source' ? 'Data Source' : 'Selective'}
+                          </span>
+                        </div>
+                        <span className="text-xs text-gray-500">{formatDate(run.started_at)}</span>
+                      </div>
+                      <div className="text-sm font-medium text-gray-900 mb-1">{run.schedule_name}</div>
+                      <div className="text-xs text-gray-600 space-y-1">
+                        <div className="flex items-center gap-4">
+                          <span>
+                            <span className="font-medium">Triggered:</span> {run.triggered_by}
+                          </span>
+                          <span>
+                            <span className="font-medium">Documents:</span> {run.documents_synced || 0}
+                          </span>
+                        </div>
+                        {run.error_message && (
+                          <div className="text-red-600 truncate">
+                            <span className="font-medium">Error:</span> {run.error_message}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center text-gray-500 py-4">No runs yet</div>
+              )}
             </div>
           ) : (
             <div className="bg-white rounded-xl p-6 shadow-sm">
@@ -383,19 +475,23 @@ function SyncSchedulesPage() {
 
               {loadingHistory ? (
                 <div className="text-center text-gray-500 py-4">Loading history...</div>
-              ) : scheduleHistory?.results && scheduleHistory.results.length > 0 ? (
+              ) : scheduleHistory?.runs && scheduleHistory.runs.length > 0 ? (
                 <div className="space-y-3 max-h-96 overflow-y-auto">
-                  {scheduleHistory.results.map((run: SyncScheduleRun) => (
-                    <div key={run.id} className="p-3 bg-gray-50 rounded-lg">
+                  {scheduleHistory.runs.map((run: SyncScheduleRun) => (
+                    <div
+                      key={run.id}
+                      className="p-3 bg-gray-50 rounded-lg hover:bg-gray-100 cursor-pointer transition"
+                      onClick={() => run.sync_history && setSelectedSyncHistoryId(run.sync_history)}
+                    >
                       <div className="flex items-center justify-between mb-2">
                         <span className={`px-2 py-0.5 text-xs rounded font-medium ${
-                          run.sync_history?.status === 'completed'
+                          run.sync_history_status === 'completed'
                             ? 'bg-green-100 text-green-700'
-                            : run.sync_history?.status === 'failed'
+                            : run.sync_history_status === 'failed'
                             ? 'bg-red-100 text-red-700'
                             : 'bg-blue-100 text-blue-700'
                         }`}>
-                          {run.sync_history?.status || 'Unknown'}
+                          {run.sync_history_status || 'Unknown'}
                         </span>
                         <span className="text-xs text-gray-500">{formatDate(run.started_at)}</span>
                       </div>
@@ -403,19 +499,13 @@ function SyncSchedulesPage() {
                         <div>
                           <span className="font-medium">Triggered by:</span> {run.triggered_by}
                         </div>
-                        {run.sync_history && (
-                          <>
-                            <div>
-                              <span className="font-medium">Documents:</span>{' '}
-                              {run.sync_history.documents_created || 0} created,{' '}
-                              {run.sync_history.documents_updated || 0} updated
-                            </div>
-                            {run.sync_history.error_message && (
-                              <div className="text-red-600">
-                                <span className="font-medium">Error:</span> {run.sync_history.error_message}
-                              </div>
-                            )}
-                          </>
+                        <div>
+                          <span className="font-medium">Documents:</span> {run.documents_synced || 0}
+                        </div>
+                        {run.error_message && (
+                          <div className="text-red-600">
+                            <span className="font-medium">Error:</span> {run.error_message}
+                          </div>
                         )}
                       </div>
                     </div>
@@ -538,18 +628,18 @@ function SyncSchedulesPage() {
                 {/* Presets */}
                 {presets && (
                   <div className="flex flex-wrap gap-2 mt-2">
-                    {presets.presets.map((preset: { expression: string; description: string }) => (
+                    {presets.presets.map((preset) => (
                       <button
-                        key={preset.expression}
+                        key={preset.value}
                         type="button"
-                        onClick={() => setFormData({ ...formData, cron_expression: preset.expression })}
+                        onClick={() => setFormData({ ...formData, cron_expression: preset.value })}
                         className={`px-2 py-1 text-xs rounded border transition ${
-                          formData.cron_expression === preset.expression
+                          formData.cron_expression === preset.value
                             ? 'bg-purple-100 border-purple-300 text-purple-700'
                             : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
                         }`}
                       >
-                        {preset.description}
+                        {preset.label}
                       </button>
                     ))}
                   </div>
@@ -603,6 +693,83 @@ function SyncSchedulesPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Sync Logs Modal */}
+      {selectedSyncHistoryId && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 max-w-4xl w-full mx-4 shadow-xl max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-semibold text-gray-900">Sync Logs</h3>
+              <button
+                onClick={() => setSelectedSyncHistoryId(null)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {loadingLogs ? (
+              <div className="text-center text-gray-500 py-8">Loading logs...</div>
+            ) : syncLogs?.entries && syncLogs.entries.length > 0 ? (
+              <div className="flex-1 overflow-y-auto space-y-2">
+                {syncLogs.entries.map((entry) => (
+                  <div
+                    key={entry.id}
+                    className={`p-3 rounded-lg border ${
+                      entry.level === 'error'
+                        ? 'bg-red-50 border-red-200'
+                        : entry.level === 'warning'
+                        ? 'bg-yellow-50 border-yellow-200'
+                        : entry.level === 'debug'
+                        ? 'bg-gray-50 border-gray-200'
+                        : 'bg-blue-50 border-blue-200'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <span className={`px-2 py-0.5 text-xs rounded font-medium ${
+                          entry.level === 'error'
+                            ? 'bg-red-100 text-red-700'
+                            : entry.level === 'warning'
+                            ? 'bg-yellow-100 text-yellow-700'
+                            : entry.level === 'debug'
+                            ? 'bg-gray-100 text-gray-700'
+                            : 'bg-blue-100 text-blue-700'
+                        }`}>
+                          {entry.level.toUpperCase()}
+                        </span>
+                        {entry.document_identifier && (
+                          <span className="text-xs text-gray-500">
+                            Doc: {entry.document_identifier}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-500">
+                        {new Date(entry.timestamp).toLocaleString()}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-700">{entry.message}</p>
+                    {entry.details && Object.keys(entry.details).length > 0 && (
+                      <details className="mt-2">
+                        <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700">
+                          Details
+                        </summary>
+                        <pre className="mt-1 p-2 bg-gray-100 rounded text-xs overflow-x-auto">
+                          {JSON.stringify(entry.details, null, 2)}
+                        </pre>
+                      </details>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center text-gray-500 py-8">No log entries found</div>
+            )}
           </div>
         </div>
       )}

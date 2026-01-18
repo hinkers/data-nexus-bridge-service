@@ -123,6 +123,26 @@ export interface SyncHistory {
   documents_updated: number;
   documents_failed: number;
   progress_percent: number;
+  log_entries_count: number;
+  error_count: number;
+}
+
+export interface SyncLogEntry {
+  id: number;
+  sync_history: number;
+  level: 'debug' | 'info' | 'warning' | 'error';
+  message: string;
+  document_identifier: string;
+  details: Record<string, any>;
+  timestamp: string;
+}
+
+export interface SyncLogsResponse {
+  sync_id: number;
+  sync_type: string;
+  status: string;
+  total_entries: number;
+  entries: SyncLogEntry[];
 }
 
 export interface LatestSyncs {
@@ -227,6 +247,11 @@ export const documentsApi = {
 
 export const syncHistoryApi = {
   latest: () => apiClient.get<LatestSyncs>('/api/sync-history/latest/'),
+  list: (params?: { sync_type?: string; success?: boolean }) =>
+    apiClient.get<PaginatedResponse<SyncHistory>>('/api/sync-history/', { params }),
+  get: (id: number) => apiClient.get<SyncHistory>(`/api/sync-history/${id}/`),
+  getLogs: (id: number, params?: { level?: string; document?: string }) =>
+    apiClient.get<SyncLogsResponse>(`/api/sync-history/${id}/logs/`, { params }),
 };
 
 // Plugin types
@@ -704,10 +729,13 @@ export const webhooksApi = {
 export interface SyncScheduleRun {
   id: number;
   schedule: number;
+  schedule_name: string;
+  sync_type: string;
   sync_history: number;
   sync_history_status: string;
   sync_history_success: boolean;
   documents_synced: number;
+  error_message: string | null;
   triggered_by: 'scheduled' | 'manual';
   started_at: string;
   completed_at: string | null;
@@ -760,6 +788,11 @@ export interface SyncScheduleHistoryResult {
   runs: SyncScheduleRun[];
 }
 
+export interface AllRunsResult {
+  runs: SyncScheduleRun[];
+  total: number;
+}
+
 // System Reports types
 export interface SystemReportsAlert {
   level: 'info' | 'warning' | 'error';
@@ -770,6 +803,7 @@ export interface SystemReportsAlert {
 
 export interface RecentSyncRun {
   id: number;
+  sync_history_id: number | null;
   schedule_id: number;
   schedule_name: string;
   sync_type: string;
@@ -882,6 +916,8 @@ export const syncSchedulesApi = {
     apiClient.post<SyncScheduleRunNowResult>(`/api/sync-schedules/${id}/run-now/`),
   getHistory: (id: number) =>
     apiClient.get<SyncScheduleHistoryResult>(`/api/sync-schedules/${id}/history/`),
+  getAllRuns: (limit?: number) =>
+    apiClient.get<AllRunsResult>('/api/sync-schedules/all-runs/', { params: limit ? { limit } : undefined }),
   getPresets: () =>
     apiClient.get<SyncSchedulePresets>('/api/sync-schedules/presets/'),
   getDataSourceInstances: () =>

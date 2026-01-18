@@ -652,6 +652,7 @@ def system_reports(request):
     for run in recent_runs:
         recent_runs_data.append({
             'id': run.id,
+            'sync_history_id': run.sync_history.id if run.sync_history else None,
             'schedule_id': run.schedule.id,
             'schedule_name': run.schedule.name,
             'sync_type': run.schedule.sync_type,

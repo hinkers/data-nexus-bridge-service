@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { reportsApi, type SystemReports, type SystemReportsAlert } from '../api/client';
+import { reportsApi, syncHistoryApi, type SystemReports, type SystemReportsAlert, type SyncLogEntry } from '../api/client';
 
 const TIME_RANGE_OPTIONS = [
   { value: 1, label: 'Last 24 hours' },
@@ -13,6 +13,8 @@ const TIME_RANGE_OPTIONS = [
 
 function ReportsPage() {
   const [selectedDays, setSelectedDays] = useState(7);
+  const [selectedSyncId, setSelectedSyncId] = useState<number | null>(null);
+  const [logLevelFilter, setLogLevelFilter] = useState<string>('');
 
   const { data: reports, isLoading, error, refetch } = useQuery({
     queryKey: ['system', 'reports', selectedDays],
@@ -20,6 +22,19 @@ function ReportsPage() {
       const response = await reportsApi.getReports(selectedDays);
       return response.data;
     },
+  });
+
+  const { data: syncLogs, isLoading: logsLoading } = useQuery({
+    queryKey: ['sync-logs', selectedSyncId, logLevelFilter],
+    queryFn: async () => {
+      if (!selectedSyncId) return null;
+      const response = await syncHistoryApi.getLogs(
+        selectedSyncId,
+        logLevelFilter ? { level: logLevelFilter } : undefined
+      );
+      return response.data;
+    },
+    enabled: !!selectedSyncId,
   });
 
   const formatDate = (dateStr: string) => {
@@ -93,6 +108,21 @@ function ReportsPage() {
       return { status: 'Warning', color: 'text-amber-600', bgColor: 'bg-amber-100', borderColor: 'border-amber-200' };
     }
     return { status: 'Healthy', color: 'text-green-600', bgColor: 'bg-green-100', borderColor: 'border-green-200' };
+  };
+
+  const getLogLevelStyle = (level: SyncLogEntry['level']) => {
+    switch (level) {
+      case 'error':
+        return { bg: 'bg-red-100', text: 'text-red-800', border: 'border-red-200' };
+      case 'warning':
+        return { bg: 'bg-amber-100', text: 'text-amber-800', border: 'border-amber-200' };
+      case 'info':
+        return { bg: 'bg-blue-100', text: 'text-blue-800', border: 'border-blue-200' };
+      case 'debug':
+        return { bg: 'bg-gray-100', text: 'text-gray-600', border: 'border-gray-200' };
+      default:
+        return { bg: 'bg-gray-100', text: 'text-gray-800', border: 'border-gray-200' };
+    }
   };
 
   if (error) {
@@ -338,13 +368,18 @@ function ReportsPage() {
             {/* Recent Sync Runs Section */}
             <div className="bg-white rounded-xl p-6 shadow-sm">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Recent Sync Runs</h2>
+              <p className="text-xs text-gray-500 mb-3">Click on a sync to view detailed logs</p>
 
               {reports.sync_runs.recent.length > 0 ? (
                 <div className="space-y-3">
                   {reports.sync_runs.recent.map((run) => (
-                    <div
+                    <button
                       key={run.id}
-                      className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                      onClick={() => run.sync_history_id && setSelectedSyncId(run.sync_history_id)}
+                      disabled={!run.sync_history_id}
+                      className={`w-full flex items-center justify-between p-3 bg-gray-50 rounded-lg transition text-left ${
+                        run.sync_history_id ? 'hover:bg-gray-100 cursor-pointer' : 'opacity-60 cursor-not-allowed'
+                      }`}
                     >
                       <div className="flex items-center gap-3">
                         <span className={`w-2 h-2 rounded-full ${
@@ -360,15 +395,20 @@ function ReportsPage() {
                           </div>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <span className={`text-sm font-medium ${run.success ? 'text-green-600' : 'text-red-600'}`}>
-                          {run.success ? 'Success' : 'Failed'}
-                        </span>
-                        {run.records_synced > 0 && (
-                          <div className="text-xs text-gray-500">{run.records_synced} synced</div>
-                        )}
+                      <div className="text-right flex items-center gap-2">
+                        <div>
+                          <span className={`text-sm font-medium ${run.success ? 'text-green-600' : 'text-red-600'}`}>
+                            {run.success ? 'Success' : 'Failed'}
+                          </span>
+                          {run.records_synced > 0 && (
+                            <div className="text-xs text-gray-500">{run.records_synced} synced</div>
+                          )}
+                        </div>
+                        <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </div>
               ) : (
@@ -463,6 +503,117 @@ function ReportsPage() {
           </div>
         </div>
       ) : null}
+
+      {/* Sync Logs Modal */}
+      {selectedSyncId && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between p-6 border-b">
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900">Sync Logs</h2>
+                {syncLogs && (
+                  <p className="text-sm text-gray-500">
+                    {syncLogs.sync_type.replace('_', ' ')} - {syncLogs.status}
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <select
+                  value={logLevelFilter}
+                  onChange={(e) => setLogLevelFilter(e.target.value)}
+                  className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg"
+                >
+                  <option value="">All levels</option>
+                  <option value="error">Errors only</option>
+                  <option value="warning">Warnings</option>
+                  <option value="info">Info</option>
+                  <option value="debug">Debug</option>
+                </select>
+                <button
+                  onClick={() => {
+                    setSelectedSyncId(null);
+                    setLogLevelFilter('');
+                  }}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition"
+                >
+                  <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6">
+              {logsLoading ? (
+                <div className="flex items-center justify-center py-10">
+                  <svg className="animate-spin w-6 h-6 text-purple-600" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                </div>
+              ) : syncLogs && syncLogs.entries.length > 0 ? (
+                <div className="space-y-2">
+                  {syncLogs.entries.map((entry) => {
+                    const style = getLogLevelStyle(entry.level);
+                    return (
+                      <div
+                        key={entry.id}
+                        className={`p-3 rounded-lg border ${style.bg} ${style.border}`}
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className={`px-2 py-0.5 text-xs font-medium rounded uppercase ${style.text}`}>
+                                {entry.level}
+                              </span>
+                              {entry.document_identifier && (
+                                <span className="text-xs text-gray-500 font-mono">
+                                  {entry.document_identifier}
+                                </span>
+                              )}
+                            </div>
+                            <p className={`text-sm ${style.text}`}>{entry.message}</p>
+                            {entry.details && Object.keys(entry.details).length > 0 && (
+                              <details className="mt-2">
+                                <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700">
+                                  View details
+                                </summary>
+                                <pre className="mt-2 p-2 bg-white/50 rounded text-xs overflow-x-auto">
+                                  {JSON.stringify(entry.details, null, 2)}
+                                </pre>
+                              </details>
+                            )}
+                          </div>
+                          <span className="text-xs text-gray-500 whitespace-nowrap">
+                            {new Date(entry.timestamp).toLocaleTimeString()}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-center py-10 text-gray-500">
+                  {logLevelFilter ? (
+                    <p>No {logLevelFilter} log entries found</p>
+                  ) : (
+                    <p>No log entries recorded for this sync</p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {syncLogs && (
+              <div className="p-4 border-t bg-gray-50 rounded-b-xl">
+                <p className="text-sm text-gray-600">
+                  Total entries: {syncLogs.total_entries}
+                  {logLevelFilter && ` (filtered by ${logLevelFilter})`}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

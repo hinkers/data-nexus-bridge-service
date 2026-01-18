@@ -33,6 +33,7 @@ from affinda_bridge.serializers import (
     ExternalTableSerializer,
     FieldDefinitionSerializer,
     SyncHistorySerializer,
+    SyncLogEntrySerializer,
     SyncScheduleSerializer,
     WorkspaceSerializer,
 )
@@ -444,6 +445,37 @@ class SyncHistoryViewSet(viewsets.ReadOnlyModelViewSet):
 
         return Response(latest_syncs)
 
+    @action(detail=True, methods=["get"])
+    def logs(self, request, pk=None):
+        """
+        Get log entries for a specific sync history.
+
+        Query params:
+        - level: Filter by log level (debug, info, warning, error)
+        - document: Filter by document identifier
+        """
+        sync_history = self.get_object()
+        logs = sync_history.log_entries.all()
+
+        # Filter by level if provided
+        level = request.query_params.get("level")
+        if level:
+            logs = logs.filter(level=level)
+
+        # Filter by document if provided
+        document = request.query_params.get("document")
+        if document:
+            logs = logs.filter(document_identifier__icontains=document)
+
+        serializer = SyncLogEntrySerializer(logs, many=True)
+        return Response({
+            "sync_id": sync_history.id,
+            "sync_type": sync_history.sync_type,
+            "status": sync_history.status,
+            "total_entries": logs.count(),
+            "entries": serializer.data,
+        })
+
 
 class CollectionViewViewSet(viewsets.ModelViewSet):
     """
@@ -837,4 +869,22 @@ class SyncScheduleViewSet(viewsets.ModelViewSet):
                 }
                 for instance in instances
             ]
+        })
+
+    @action(detail=False, methods=["get"], url_path="all-runs")
+    def all_runs(self, request):
+        """Get recent runs from all schedules, ordered by start time."""
+        from affinda_bridge.models import SyncScheduleRun
+        from affinda_bridge.serializers import SyncScheduleRunSerializer
+
+        limit = int(request.query_params.get("limit", 50))
+        runs = (
+            SyncScheduleRun.objects
+            .select_related("schedule", "sync_history")
+            .order_by("-started_at")[:limit]
+        )
+
+        return Response({
+            "runs": SyncScheduleRunSerializer(runs, many=True).data,
+            "total": SyncScheduleRun.objects.count(),
         })
