@@ -1,11 +1,16 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { workspacesApi, collectionsApi, documentsApi, syncHistoryApi, type LatestSyncs } from '../api/client';
+import { workspacesApi, collectionsApi, documentsApi, syncSchedulesApi, type SyncSchedule } from '../api/client';
 
 interface DashboardStats {
   workspaces: number;
   collections: number;
   documents: number;
+}
+
+interface SyncScheduleInfo {
+  nextSchedule: SyncSchedule | null;
+  lastRun: { schedule: SyncSchedule; runAt: string; success: boolean } | null;
 }
 
 function DashboardPage() {
@@ -15,16 +20,19 @@ function DashboardPage() {
     documents: 0,
   });
   const [isLoading, setIsLoading] = useState(true);
-  const [latestSyncs, setLatestSyncs] = useState<LatestSyncs>({});
+  const [scheduleInfo, setScheduleInfo] = useState<SyncScheduleInfo>({
+    nextSchedule: null,
+    lastRun: null,
+  });
 
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const [workspacesRes, collectionsRes, documentsRes, syncsRes] = await Promise.all([
+        const [workspacesRes, collectionsRes, documentsRes, schedulesRes] = await Promise.all([
           workspacesApi.list(),
           collectionsApi.list(),
           documentsApi.list(),
-          syncHistoryApi.latest(),
+          syncSchedulesApi.list({ enabled: true }),
         ]);
 
         setStats({
@@ -32,7 +40,36 @@ function DashboardPage() {
           collections: collectionsRes.data.count,
           documents: documentsRes.data.count,
         });
-        setLatestSyncs(syncsRes.data);
+
+        // Find next scheduled sync and last run
+        const schedules = schedulesRes.data.results;
+        let nextSchedule: SyncSchedule | null = null;
+        let lastRun: SyncScheduleInfo['lastRun'] = null;
+
+        for (const schedule of schedules) {
+          // Find closest next run
+          if (schedule.next_run_at) {
+            if (!nextSchedule || new Date(schedule.next_run_at) < new Date(nextSchedule.next_run_at!)) {
+              nextSchedule = schedule;
+            }
+          }
+
+          // Find most recent run across all schedules
+          if (schedule.recent_runs && schedule.recent_runs.length > 0) {
+            const mostRecentRun = schedule.recent_runs[0];
+            if (mostRecentRun.completed_at) {
+              if (!lastRun || new Date(mostRecentRun.completed_at) > new Date(lastRun.runAt)) {
+                lastRun = {
+                  schedule,
+                  runAt: mostRecentRun.completed_at,
+                  success: mostRecentRun.sync_history_success,
+                };
+              }
+            }
+          }
+        }
+
+        setScheduleInfo({ nextSchedule, lastRun });
       } catch (error) {
         console.error('Failed to fetch dashboard stats:', error);
       } finally {
@@ -96,28 +133,55 @@ function DashboardPage() {
           </div>
         </Link>
 
-        <div className="bg-white rounded-xl p-5 md:p-8 shadow-sm flex flex-col gap-2 hover:-translate-y-0.5 hover:shadow-lg transition-all">
+        <Link
+          to="/dashboard/sync-schedules"
+          className="bg-white rounded-xl p-5 md:p-8 shadow-sm flex flex-col gap-2 hover:-translate-y-0.5 hover:shadow-lg transition-all cursor-pointer"
+        >
           <div className="flex items-center gap-3">
             <div className="text-3xl w-12 h-12 flex items-center justify-center bg-gradient-to-br from-purple-500 to-blue-600 rounded-xl flex-shrink-0">
               🔄
             </div>
-            <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide">Last Sync</h3>
+            <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide">Sync Schedules</h3>
           </div>
-          <div className="mt-2">
+          <div className="mt-2 space-y-2">
             {isLoading ? (
               <p className="text-sm text-gray-500">Loading...</p>
-            ) : latestSyncs.field_definitions?.completed_at ? (
-              <>
-                <p className="text-xs text-gray-500 mb-1">Field Definitions</p>
-                <p className="text-sm font-medium text-gray-900">
-                  {new Date(latestSyncs.field_definitions.completed_at).toLocaleString()}
-                </p>
-              </>
             ) : (
-              <p className="text-sm text-gray-500">No syncs yet</p>
+              <>
+                {scheduleInfo.lastRun ? (
+                  <div>
+                    <p className="text-xs text-gray-500">Last run</p>
+                    <p className="text-sm font-medium text-gray-900">
+                      {new Date(scheduleInfo.lastRun.runAt).toLocaleString()}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {scheduleInfo.lastRun.schedule.name}
+                      {scheduleInfo.lastRun.success ? (
+                        <span className="text-green-600 ml-1">✓</span>
+                      ) : (
+                        <span className="text-red-600 ml-1">✗</span>
+                      )}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500">No runs yet</p>
+                )}
+                {scheduleInfo.nextSchedule && (
+                  <div className="pt-1 border-t border-gray-100">
+                    <p className="text-xs text-gray-500">Next scheduled</p>
+                    <p className="text-sm font-medium text-gray-900">
+                      {new Date(scheduleInfo.nextSchedule.next_run_at!).toLocaleString()}
+                    </p>
+                    <p className="text-xs text-gray-500">{scheduleInfo.nextSchedule.name}</p>
+                  </div>
+                )}
+                {!scheduleInfo.lastRun && !scheduleInfo.nextSchedule && (
+                  <p className="text-sm text-gray-500">No schedules configured</p>
+                )}
+              </>
             )}
           </div>
-        </div>
+        </Link>
       </div>
 
       <div className="bg-white rounded-xl p-6 md:p-10 shadow-sm">
