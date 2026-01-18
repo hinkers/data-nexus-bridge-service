@@ -36,6 +36,8 @@ urlpatterns = [
     path("api/system/webhooks/", system_views.get_webhook_config, name="system-webhooks"),
     path("api/system/webhooks/update/", system_views.update_webhook_config, name="system-webhooks-update"),
     path("api/system/webhooks/regenerate-token/", system_views.regenerate_webhook_token, name="system-webhooks-regenerate"),
+    # Reports endpoint
+    path("api/system/reports/", system_views.system_reports, name="system-reports"),
     # Webhook receiver endpoint (unauthenticated, secured by token in URL)
     path("api/webhooks/affinda/<str:secret_token>/", webhook_views.webhook_receiver, name="webhook-receiver"),
     # API endpoints

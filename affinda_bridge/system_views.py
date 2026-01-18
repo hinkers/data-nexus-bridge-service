@@ -588,3 +588,231 @@ def regenerate_webhook_token(request):
         'webhook_url': webhook_url,
         'secret_token': config.secret_token,
     })
+
+
+@api_view(['GET'])
+def system_reports(request):
+    """
+    Get system health reports and statistics.
+    Accepts optional 'days' query parameter for time range (default: 7).
+    """
+    from datetime import timedelta
+    from django.db.models import Count, Q
+    from django.utils import timezone
+
+    from affinda_bridge.models import (
+        Collection,
+        Document,
+        SyncHistory,
+        SyncSchedule,
+        SyncScheduleRun,
+    )
+    from plugins.models import Plugin, PluginExecutionLog, PluginInstance
+
+    # Get time range from query params (default 7 days)
+    try:
+        days = int(request.query_params.get('days', 7))
+        days = max(1, min(days, 365))  # Clamp between 1 and 365
+    except (ValueError, TypeError):
+        days = 7
+
+    now = timezone.now()
+    time_threshold = now - timedelta(days=days)
+
+    # === Document Statistics ===
+    total_documents = Document.objects.count()
+    documents_by_state = Document.objects.values('state').annotate(count=Count('id'))
+    state_counts = {item['state']: item['count'] for item in documents_by_state}
+
+    sync_enabled_count = Document.objects.filter(sync_enabled=True).count()
+    failed_documents = Document.objects.filter(failed=True).count()
+    in_review_documents = Document.objects.filter(in_review=True).count()
+
+    # === Sync Schedule Health ===
+    total_schedules = SyncSchedule.objects.count()
+    enabled_schedules = SyncSchedule.objects.filter(enabled=True).count()
+
+    # Schedules that haven't run in expected time (missed runs)
+    overdue_schedules = []
+    for schedule in SyncSchedule.objects.filter(enabled=True):
+        if schedule.next_run_at and schedule.next_run_at < now:
+            overdue_schedules.append({
+                'id': schedule.id,
+                'name': schedule.name,
+                'next_run_at': schedule.next_run_at.isoformat(),
+                'overdue_by': str(now - schedule.next_run_at),
+            })
+
+    # Recent schedule runs
+    recent_runs = SyncScheduleRun.objects.filter(
+        started_at__gte=time_threshold
+    ).select_related('schedule', 'sync_history').order_by('-started_at')[:20]
+
+    recent_runs_data = []
+    for run in recent_runs:
+        recent_runs_data.append({
+            'id': run.id,
+            'schedule_id': run.schedule.id,
+            'schedule_name': run.schedule.name,
+            'sync_type': run.schedule.sync_type,
+            'triggered_by': run.triggered_by,
+            'started_at': run.started_at.isoformat(),
+            'completed_at': run.completed_at.isoformat() if run.completed_at else None,
+            'status': run.sync_history.status if run.sync_history else 'unknown',
+            'success': run.sync_history.success if run.sync_history else False,
+            'records_synced': run.sync_history.records_synced if run.sync_history else 0,
+            'error_message': run.sync_history.error_message if run.sync_history else None,
+        })
+
+    # Success/failure rate in time range
+    runs_in_range = SyncScheduleRun.objects.filter(
+        started_at__gte=time_threshold,
+        sync_history__isnull=False,
+    ).select_related('sync_history')
+
+    total_runs = runs_in_range.count()
+    successful_runs = runs_in_range.filter(sync_history__success=True).count()
+    failed_runs = runs_in_range.filter(sync_history__success=False).count()
+    success_rate = (successful_runs / total_runs * 100) if total_runs > 0 else 0
+
+    # Upcoming scheduled runs
+    upcoming_runs = SyncSchedule.objects.filter(
+        enabled=True,
+        next_run_at__isnull=False,
+        next_run_at__gte=now,
+    ).order_by('next_run_at')[:5]
+
+    upcoming_runs_data = [{
+        'id': s.id,
+        'name': s.name,
+        'sync_type': s.sync_type,
+        'next_run_at': s.next_run_at.isoformat(),
+        'collection_name': s.collection.name if s.collection else None,
+        'plugin_instance_name': s.plugin_instance.name if s.plugin_instance else None,
+    } for s in upcoming_runs]
+
+    # === Plugin Health ===
+    installed_plugins = Plugin.objects.filter(enabled=True).count()
+    total_plugins = Plugin.objects.count()
+    active_instances = PluginInstance.objects.filter(
+        enabled=True,
+        component__plugin__enabled=True,
+    ).count()
+
+    # Recent plugin execution failures
+    recent_plugin_failures = PluginExecutionLog.objects.filter(
+        started_at__gte=time_threshold,
+        status=PluginExecutionLog.STATUS_FAILED,
+    ).select_related('instance', 'instance__component').order_by('-started_at')[:10]
+
+    plugin_failures_data = [{
+        'id': log.id,
+        'instance_name': log.instance.name,
+        'component_name': log.instance.component.name,
+        'started_at': log.started_at.isoformat(),
+        'error_message': log.error_message[:200] if log.error_message else None,
+    } for log in recent_plugin_failures]
+
+    # Plugin execution stats in time range
+    plugin_logs_in_range = PluginExecutionLog.objects.filter(started_at__gte=time_threshold)
+    total_executions = plugin_logs_in_range.count()
+    successful_executions = plugin_logs_in_range.filter(status=PluginExecutionLog.STATUS_SUCCESS).count()
+    failed_executions = plugin_logs_in_range.filter(status=PluginExecutionLog.STATUS_FAILED).count()
+
+    # === Collection Statistics ===
+    total_collections = Collection.objects.count()
+    collections_with_documents = Collection.objects.annotate(
+        doc_count=Count('documents')
+    ).filter(doc_count__gt=0).count()
+
+    # === System Alerts ===
+    alerts = []
+
+    # Alert: Overdue schedules
+    if overdue_schedules:
+        alerts.append({
+            'level': 'warning',
+            'type': 'overdue_schedules',
+            'message': f'{len(overdue_schedules)} schedule(s) are overdue',
+            'count': len(overdue_schedules),
+        })
+
+    # Alert: Recent sync failures
+    if failed_runs > 0:
+        alerts.append({
+            'level': 'error' if failed_runs > successful_runs else 'warning',
+            'type': 'sync_failures',
+            'message': f'{failed_runs} sync failure(s) in the last {days} day(s)',
+            'count': failed_runs,
+        })
+
+    # Alert: Failed documents
+    if failed_documents > 0:
+        alerts.append({
+            'level': 'warning',
+            'type': 'failed_documents',
+            'message': f'{failed_documents} document(s) in failed state',
+            'count': failed_documents,
+        })
+
+    # Alert: Plugin failures
+    if failed_executions > 0:
+        alerts.append({
+            'level': 'warning',
+            'type': 'plugin_failures',
+            'message': f'{failed_executions} plugin execution failure(s) in the last {days} day(s)',
+            'count': failed_executions,
+        })
+
+    # Alert: No enabled schedules
+    if enabled_schedules == 0 and total_schedules > 0:
+        alerts.append({
+            'level': 'info',
+            'type': 'no_enabled_schedules',
+            'message': 'No sync schedules are enabled',
+            'count': 0,
+        })
+
+    return Response({
+        'time_range': {
+            'days': days,
+            'from': time_threshold.isoformat(),
+            'to': now.isoformat(),
+        },
+        'documents': {
+            'total': total_documents,
+            'by_state': state_counts,
+            'sync_enabled': sync_enabled_count,
+            'failed': failed_documents,
+            'in_review': in_review_documents,
+        },
+        'sync_schedules': {
+            'total': total_schedules,
+            'enabled': enabled_schedules,
+            'overdue': overdue_schedules,
+            'upcoming': upcoming_runs_data,
+        },
+        'sync_runs': {
+            'total': total_runs,
+            'successful': successful_runs,
+            'failed': failed_runs,
+            'success_rate': round(success_rate, 1),
+            'recent': recent_runs_data,
+        },
+        'plugins': {
+            'installed': installed_plugins,
+            'total': total_plugins,
+            'active_instances': active_instances,
+            'executions': {
+                'total': total_executions,
+                'successful': successful_executions,
+                'failed': failed_executions,
+            },
+            'recent_failures': plugin_failures_data,
+        },
+        'collections': {
+            'total': total_collections,
+            'with_documents': collections_with_documents,
+        },
+        'alerts': alerts,
+    })

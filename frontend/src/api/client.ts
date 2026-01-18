@@ -760,6 +760,102 @@ export interface SyncScheduleHistoryResult {
   runs: SyncScheduleRun[];
 }
 
+// System Reports types
+export interface SystemReportsAlert {
+  level: 'info' | 'warning' | 'error';
+  type: string;
+  message: string;
+  count: number;
+}
+
+export interface RecentSyncRun {
+  id: number;
+  schedule_id: number;
+  schedule_name: string;
+  sync_type: string;
+  triggered_by: 'scheduled' | 'manual';
+  started_at: string;
+  completed_at: string | null;
+  status: string;
+  success: boolean;
+  records_synced: number;
+  error_message: string | null;
+}
+
+export interface UpcomingSchedule {
+  id: number;
+  name: string;
+  sync_type: string;
+  next_run_at: string;
+  collection_name: string | null;
+  plugin_instance_name: string | null;
+}
+
+export interface OverdueSchedule {
+  id: number;
+  name: string;
+  next_run_at: string;
+  overdue_by: string;
+}
+
+export interface PluginFailure {
+  id: number;
+  instance_name: string;
+  component_name: string;
+  started_at: string;
+  error_message: string | null;
+}
+
+export interface SystemReports {
+  time_range: {
+    days: number;
+    from: string;
+    to: string;
+  };
+  documents: {
+    total: number;
+    by_state: Record<string, number>;
+    sync_enabled: number;
+    failed: number;
+    in_review: number;
+  };
+  sync_schedules: {
+    total: number;
+    enabled: number;
+    overdue: OverdueSchedule[];
+    upcoming: UpcomingSchedule[];
+  };
+  sync_runs: {
+    total: number;
+    successful: number;
+    failed: number;
+    success_rate: number;
+    recent: RecentSyncRun[];
+  };
+  plugins: {
+    installed: number;
+    total: number;
+    active_instances: number;
+    executions: {
+      total: number;
+      successful: number;
+      failed: number;
+    };
+    recent_failures: PluginFailure[];
+  };
+  collections: {
+    total: number;
+    with_documents: number;
+  };
+  alerts: SystemReportsAlert[];
+}
+
+// System Reports API functions
+export const reportsApi = {
+  getReports: (days?: number) =>
+    apiClient.get<SystemReports>('/api/system/reports/', { params: days ? { days } : undefined }),
+};
+
 // Sync Schedule API functions
 export const syncSchedulesApi = {
   list: (params?: { collection?: number; sync_type?: string; enabled?: boolean; plugin_instance?: number }) =>

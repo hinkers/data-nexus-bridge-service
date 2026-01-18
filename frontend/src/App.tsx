@@ -11,6 +11,7 @@ import DocumentsPage from './pages/DocumentsPage';
 import ExternalTablesPage from './pages/ExternalTablesPage';
 import LoginPage from './pages/LoginPage';
 import PluginsPage from './pages/PluginsPage';
+import ReportsPage from './pages/ReportsPage';
 import SettingsPage from './pages/SettingsPage';
 import SyncSchedulesPage from './pages/SyncSchedulesPage';
 import WorkspacesPage from './pages/WorkspacesPage';
@@ -117,6 +118,16 @@ function App() {
                 <ProtectedRoute>
                   <DashboardLayout>
                     <SyncSchedulesPage />
+                  </DashboardLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/dashboard/reports"
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout>
+                    <ReportsPage />
                   </DashboardLayout>
                 </ProtectedRoute>
               }
