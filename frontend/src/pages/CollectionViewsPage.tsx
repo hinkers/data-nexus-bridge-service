@@ -357,18 +357,18 @@ function CollectionViewsPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6 md:p-8 lg:p-12">
+      <div className="p-6 md:p-8 lg:p-10 w-full max-w-7xl">
         <div className="animate-pulse">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="p-6 md:p-8 lg:p-12">
+    <div className="p-6 md:p-8 lg:p-10 w-full max-w-7xl">
       <div className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Collection Views</h1>
-          <p className="text-gray-600">Create and manage SQL database views for your collections</p>
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Collection Views</h1>
+          <p className="text-gray-500 mt-1">Create and manage SQL database views for your collections</p>
         </div>
         <button
           onClick={() => setShowCreateModal(true)}

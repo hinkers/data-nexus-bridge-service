@@ -260,18 +260,18 @@ function ExternalTablesPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6 md:p-8 lg:p-12">
+      <div className="p-6 md:p-8 lg:p-10 w-full max-w-7xl">
         <div className="animate-pulse">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="p-6 md:p-8 lg:p-12">
+    <div className="p-6 md:p-8 lg:p-10 w-full max-w-7xl">
       <div className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">External Tables</h1>
-          <p className="text-gray-600 mt-1">
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">External Tables</h1>
+          <p className="text-gray-500 mt-1">
             Define custom tables linked to documents for external data
           </p>
         </div>

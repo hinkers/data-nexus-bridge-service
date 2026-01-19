@@ -206,12 +206,12 @@ function DocumentsPage() {
   const selectedCollectionName = collections.find(c => c.id === Number(selectedCollection))?.name;
 
   return (
-    <div className="p-12 w-full">
-      <div className="mb-10">
+    <div className="p-6 md:p-8 lg:p-10 w-full max-w-7xl">
+      <div className="mb-8">
         <div className="flex justify-between items-start">
           <div>
-            <h1 className="text-4xl font-bold text-gray-900 mb-2">Documents</h1>
-            <p className="text-gray-600">View and manage processed documents</p>
+            <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Documents</h1>
+            <p className="text-gray-500 mt-1">View and manage processed documents</p>
           </div>
           <button
             onClick={handleSelectiveSync}

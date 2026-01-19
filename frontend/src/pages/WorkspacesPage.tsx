@@ -25,23 +25,23 @@ function WorkspacesPage() {
   });
 
   if (isLoading) return (
-    <div className="p-12 w-full">
+    <div className="p-6 md:p-8 lg:p-10 w-full max-w-7xl">
       <div className="text-center text-gray-500">Loading workspaces...</div>
     </div>
   );
 
   if (error) return (
-    <div className="p-12 w-full">
+    <div className="p-6 md:p-8 lg:p-10 w-full max-w-7xl">
       <div className="text-center text-red-600">Error loading workspaces: {String(error)}</div>
     </div>
   );
 
   return (
-    <div className="p-12 w-full">
-      <div className="mb-10 flex items-center justify-between">
+    <div className="p-6 md:p-8 lg:p-10 w-full max-w-7xl">
+      <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">Workspaces</h1>
-          <p className="text-gray-600">View and manage Affinda workspaces</p>
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Workspaces</h1>
+          <p className="text-gray-500 mt-1">View and manage Affinda workspaces</p>
         </div>
         <button
           onClick={() => syncMutation.mutate()}

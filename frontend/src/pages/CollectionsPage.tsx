@@ -103,22 +103,22 @@ function CollectionsPage() {
   };
 
   if (isLoading) return (
-    <div className="p-12 w-full">
+    <div className="p-6 md:p-8 lg:p-10 w-full max-w-7xl">
       <div className="text-center text-gray-500">Loading collections...</div>
     </div>
   );
 
   if (error) return (
-    <div className="p-12 w-full">
+    <div className="p-6 md:p-8 lg:p-10 w-full max-w-7xl">
       <div className="text-center text-red-600">Error loading collections: {String(error)}</div>
     </div>
   );
 
   return (
-    <div className="p-12 w-full">
-      <div className="mb-10">
-        <h1 className="text-4xl font-bold text-gray-900 mb-2">Collections</h1>
-        <p className="text-gray-600">View and manage document collections</p>
+    <div className="p-6 md:p-8 lg:p-10 w-full max-w-7xl">
+      <div className="mb-8">
+        <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Collections</h1>
+        <p className="text-gray-500 mt-1">View and manage document collections</p>
         {workspaceData && (
           <div className="mt-4 inline-flex items-center gap-2 bg-purple-100 text-purple-700 px-4 py-2 rounded-lg">
             <span className="text-sm font-medium">Filtered by workspace: {workspaceData.name}</span>

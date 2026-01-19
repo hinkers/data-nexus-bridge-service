@@ -214,10 +214,10 @@ function PluginsPage() {
   };
 
   return (
-    <div className="p-8">
+    <div className="p-6 md:p-8 lg:p-10 w-full max-w-7xl">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Plugins</h1>
-        <p className="text-gray-600">Manage importers, pre-processors, and post-processors</p>
+        <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Plugins</h1>
+        <p className="text-gray-500 mt-1">Manage importers, pre-processors, and post-processors</p>
       </div>
 
       {/* Tabs and Search */}
@@ -344,6 +344,7 @@ function PluginsPage() {
                           <span>{plugin.components_count.importers} importers</span>
                           <span>{plugin.components_count.preprocessors} pre-processors</span>
                           <span>{plugin.components_count.postprocessors} post-processors</span>
+                          <span>{plugin.components_count.datasources} data sources</span>
                         </div>
                       </div>
                       <div className="flex gap-2">

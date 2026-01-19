@@ -271,6 +271,7 @@ export interface Plugin {
     importers: number;
     preprocessors: number;
     postprocessors: number;
+    datasources: number;
   };
 }
 
