@@ -495,6 +495,48 @@ def clear_affinda_api_key(request):
 
 @api_view(['GET'])
 @permission_classes([IsAdminUser])
+def get_affinda_organizations(request):
+    """
+    Fetch available organizations for the configured API key.
+    Requires admin permissions.
+    """
+    from affinda_bridge.clients import AffindaClient
+    from affinda_bridge.models import SystemSettings
+
+    try:
+        # Get API key from database or environment
+        api_key = SystemSettings.get_value(SystemSettings.SETTING_AFFINDA_API_KEY)
+        if not api_key:
+            api_key = os.environ.get("AFFINDA_API_KEY", "")
+
+        base_url = SystemSettings.get_value(SystemSettings.SETTING_AFFINDA_BASE_URL)
+        if not base_url:
+            base_url = os.environ.get("AFFINDA_BASE_URL", "https://api.affinda.com")
+
+        if not api_key:
+            return Response({
+                'success': False,
+                'message': 'No API key configured. Please set the API key first.',
+                'organizations': [],
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        with AffindaClient(api_key=api_key, base_url=base_url) as client:
+            organizations = client.list_organizations()
+            return Response({
+                'success': True,
+                'organizations': organizations,
+            })
+
+    except Exception as e:
+        return Response({
+            'success': False,
+            'message': f'Failed to fetch organizations: {str(e)}',
+            'organizations': [],
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
 def get_webhook_config(request):
     """
     Get current webhook configuration.

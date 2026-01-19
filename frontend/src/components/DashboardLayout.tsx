@@ -128,7 +128,7 @@ function DashboardLayout({ children }: DashboardLayoutProps) {
       defaultOpen: true,
       items: [
         { path: '/dashboard/workspaces', label: 'Workspaces', icon: Icons.workspace },
-        { path: '/dashboard/collections', label: 'Collections', icon: Icons.collection },
+        { path: '/dashboard/collections', label: 'Document Types', icon: Icons.collection },
         { path: '/dashboard/documents', label: 'Documents', icon: Icons.document },
       ],
     },

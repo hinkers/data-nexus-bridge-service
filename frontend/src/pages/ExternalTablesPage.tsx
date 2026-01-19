@@ -313,7 +313,7 @@ function ExternalTablesPage() {
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900">{table.name}</h3>
                   <p className="text-sm text-gray-500">
-                    Collection: {table.collection_name}
+                    Document Type: {table.collection_name}
                   </p>
                   {table.description && (
                     <p className="text-sm text-gray-600 mt-1">{table.description}</p>
@@ -448,14 +448,14 @@ function ExternalTablesPage() {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Collection *
+                  Document Type *
                 </label>
                 <select
                   value={newTableCollection || ''}
                   onChange={(e) => setNewTableCollection(Number(e.target.value) || null)}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                 >
-                  <option value="">Select a collection</option>
+                  <option value="">Select a document type</option>
                   {collections.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}

@@ -482,13 +482,13 @@ function ReportsPage() {
             </div>
           </div>
 
-          {/* Collections Summary */}
+          {/* Document Types Summary */}
           <div className="bg-white rounded-xl p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Collections Overview</h2>
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Document Types Overview</h2>
             <div className="flex items-center gap-8">
               <div>
                 <span className="text-3xl font-bold text-gray-900">{reports.collections.total}</span>
-                <span className="text-gray-500 ml-2">Total Collections</span>
+                <span className="text-gray-500 ml-2">Total Document Types</span>
               </div>
               <div>
                 <span className="text-3xl font-bold text-gray-900">{reports.collections.with_documents}</span>

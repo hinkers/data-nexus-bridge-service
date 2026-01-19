@@ -232,6 +232,13 @@ export interface SelectiveSyncResult {
   collection_id: number | null;
 }
 
+export interface UpdateCustomIdentifierResult {
+  success: boolean;
+  message: string;
+  document_id: number;
+  custom_identifier: string;
+}
+
 export const documentsApi = {
   list: (params?: { workspace?: string; collection?: string; state?: string; page?: number; search?: string }) =>
     apiClient.get<PaginatedResponse<Document>>('/api/documents/', { params }),
@@ -243,6 +250,9 @@ export const documentsApi = {
   selectiveSync: (collectionId?: number) =>
     apiClient.post<SelectiveSyncResult>('/api/documents/selective-sync/',
       collectionId ? { collection_id: collectionId } : {}),
+  updateCustomIdentifier: (id: number, customIdentifier: string) =>
+    apiClient.patch<UpdateCustomIdentifierResult>(`/api/documents/${id}/update-custom-identifier/`,
+      { custom_identifier: customIdentifier }),
 };
 
 export const syncHistoryApi = {
@@ -496,6 +506,19 @@ export interface AffindaClearResult {
   message: string;
 }
 
+export interface AffindaOrganization {
+  identifier: string;
+  name: string;
+  user_role?: string;
+  is_trial?: boolean;
+}
+
+export interface AffindaOrganizationsResult {
+  success: boolean;
+  message?: string;
+  organizations: AffindaOrganization[];
+}
+
 // System API functions
 export const systemApi = {
   getVersion: () => apiClient.get<VersionInfo>('/api/system/version/'),
@@ -508,6 +531,7 @@ export const systemApi = {
     apiClient.post<AffindaSettings>('/api/system/affinda/update/', data),
   testAffindaConnection: () => apiClient.post<AffindaTestResult>('/api/system/affinda/test/'),
   clearAffindaApiKey: () => apiClient.post<AffindaClearResult>('/api/system/affinda/clear/'),
+  getAffindaOrganizations: () => apiClient.get<AffindaOrganizationsResult>('/api/system/affinda/organizations/'),
 };
 
 // Collection View types

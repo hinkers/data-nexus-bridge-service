@@ -20,6 +20,11 @@ function DocumentsPage() {
   const [isSelectiveSync, setIsSelectiveSync] = useState(false);
   const [selectiveSyncMessage, setSelectiveSyncMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // Custom identifier editing state
+  const [isEditingCustomId, setIsEditingCustomId] = useState(false);
+  const [editedCustomId, setEditedCustomId] = useState('');
+  const [isSavingCustomId, setIsSavingCustomId] = useState(false);
+
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
@@ -85,13 +90,24 @@ function DocumentsPage() {
     if (doc.in_review) {
       return <span className="px-3 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs font-semibold">In Review</span>;
     }
+    if (doc.is_confirmed) {
+      return <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold">Confirmed</span>;
+    }
+    if (doc.ready) {
+      return <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-semibold">Ready</span>;
+    }
     if (doc.state === 'complete') {
       return <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold">Complete</span>;
     }
     if (doc.state === 'archived') {
       return <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-semibold">Archived</span>;
     }
-    return <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-semibold">{doc.state}</span>;
+    if (doc.state === 'processing') {
+      return <span className="px-3 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs font-semibold">Processing</span>;
+    }
+    // For any other state (including empty or unknown), show as "Pending Review"
+    // This typically means the document was synced but hasn't been processed yet
+    return <span className="px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-xs font-semibold">Pending Review</span>;
   };
 
   const getFieldDefinitionsForDocument = (doc: Document) => {
@@ -171,10 +187,10 @@ function DocumentsPage() {
       const collectionId = selectedCollection ? Number(selectedCollection) : undefined;
       const response = await documentsApi.selectiveSync(collectionId);
 
-      if (response.data.sync_history_id) {
+      if (response.data.sync_id) {
         setSelectiveSyncMessage({
           type: 'success',
-          text: `Selective sync started. Documents to sync: ${response.data.documents_to_sync}`
+          text: `Selective sync started (sync ID: ${response.data.sync_id})`
         });
         // Refresh the document list after a short delay
         setTimeout(() => fetchData(), 2000);
@@ -184,6 +200,46 @@ function DocumentsPage() {
       setSelectiveSyncMessage({ type: 'error', text: errorMessage });
     } finally {
       setIsSelectiveSync(false);
+    }
+  };
+
+  const handleStartEditCustomId = () => {
+    if (selectedDocument) {
+      setEditedCustomId(selectedDocument.custom_identifier || '');
+      setIsEditingCustomId(true);
+    }
+  };
+
+  const handleCancelEditCustomId = () => {
+    setIsEditingCustomId(false);
+    setEditedCustomId('');
+  };
+
+  const handleSaveCustomId = async () => {
+    if (!selectedDocument) return;
+
+    setIsSavingCustomId(true);
+    try {
+      const response = await documentsApi.updateCustomIdentifier(selectedDocument.id, editedCustomId);
+      if (response.data.success) {
+        // Update the selected document
+        const updatedDoc = { ...selectedDocument, custom_identifier: response.data.custom_identifier };
+        setSelectedDocument(updatedDoc);
+        // Also update in the documents list
+        setDocuments(docs =>
+          docs.map(d => d.id === selectedDocument.id ? updatedDoc : d)
+        );
+        setRefreshMessage({
+          type: 'success',
+          text: 'Custom identifier updated successfully'
+        });
+        setIsEditingCustomId(false);
+      }
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to update custom identifier';
+      setRefreshMessage({ type: 'error', text: errorMessage });
+    } finally {
+      setIsSavingCustomId(false);
     }
   };
 
@@ -248,7 +304,7 @@ function DocumentsPage() {
 
         {selectedCollectionName && (
           <div className="mt-4 inline-flex items-center gap-2 bg-purple-100 text-purple-700 px-4 py-2 rounded-lg">
-            <span className="text-sm font-medium">Filtered by collection: {selectedCollectionName}</span>
+            <span className="text-sm font-medium">Filtered by document type: {selectedCollectionName}</span>
             <button
               onClick={() => {
                 setSelectedCollection('');
@@ -266,25 +322,29 @@ function DocumentsPage() {
         {/* Documents List */}
         <div className="space-y-4">
           {/* Filter Section */}
-          <div className="mb-4 flex gap-4 items-center">
-            <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Filter by Collection:</label>
-            <select
-              value={selectedCollection}
-              onChange={(e) => setSelectedCollection(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-            >
-              <option value="">All Collections</option>
-              {collections.map(col => (
-                <option key={col.id} value={col.id}>{col.name}</option>
-              ))}
-            </select>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by file name or identifier..."
-              className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-            />
+          <div className="mb-4 space-y-3">
+            <div className="flex gap-4 items-center">
+              <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Filter by Document Type:</label>
+              <select
+                value={selectedCollection}
+                onChange={(e) => setSelectedCollection(e.target.value)}
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              >
+                <option value="">All Document Types</option>
+                {collections.map(col => (
+                  <option key={col.id} value={col.id}>{col.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by file name or identifier..."
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              />
+            </div>
           </div>
           <div className="flex justify-between items-center mb-2">
             <h2 className="text-xl font-bold text-gray-900">Document List</h2>
@@ -339,7 +399,7 @@ function DocumentsPage() {
                     <span className="font-medium">Workspace:</span> {doc.workspace_name}
                   </div>
                   <div>
-                    <span className="font-medium">Collection:</span> {doc.collection_name}
+                    <span className="font-medium">Document Type:</span> {doc.collection_name}
                   </div>
                 </div>
               </div>
@@ -405,7 +465,45 @@ function DocumentsPage() {
                   </div>
                   <div>
                     <span className="text-sm font-medium text-gray-600">Custom Identifier:</span>
-                    <p className="text-gray-900 font-mono text-sm">{selectedDocument.custom_identifier}</p>
+                    {isEditingCustomId ? (
+                      <div className="mt-1 flex gap-2">
+                        <input
+                          type="text"
+                          value={editedCustomId}
+                          onChange={(e) => setEditedCustomId(e.target.value)}
+                          className="flex-1 px-2 py-1 text-sm font-mono border border-gray-300 rounded focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                          placeholder="Enter custom identifier"
+                          autoFocus
+                        />
+                        <button
+                          onClick={handleSaveCustomId}
+                          disabled={isSavingCustomId}
+                          className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+                        >
+                          {isSavingCustomId ? 'Saving...' : 'Save'}
+                        </button>
+                        <button
+                          onClick={handleCancelEditCustomId}
+                          disabled={isSavingCustomId}
+                          className="px-2 py-1 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <p className="text-gray-900 font-mono text-sm">{selectedDocument.custom_identifier || <span className="text-gray-400 italic">Not set</span>}</p>
+                        <button
+                          onClick={handleStartEditCustomId}
+                          className="p-1 text-gray-400 hover:text-purple-600 transition-colors"
+                          title="Edit custom identifier"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                          </svg>
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <div>
                     <span className="text-sm font-medium text-gray-600">Document Identifier:</span>
@@ -416,7 +514,7 @@ function DocumentsPage() {
                     <p className="text-gray-900">{selectedDocument.workspace_name}</p>
                   </div>
                   <div>
-                    <span className="text-sm font-medium text-gray-600">Collection:</span>
+                    <span className="text-sm font-medium text-gray-600">Document Type:</span>
                     <p className="text-gray-900">{selectedDocument.collection_name}</p>
                   </div>
                   <div>
@@ -459,11 +557,34 @@ function DocumentsPage() {
               <div>
                 <h3 className="font-semibold text-gray-900 mb-3 text-lg border-b pb-2">Extracted Data</h3>
                 {getFieldDefinitionsForDocument(selectedDocument).length === 0 ? (
-                  <p className="text-sm text-gray-500">No field definitions found for this collection</p>
+                  <p className="text-sm text-gray-500">No field definitions found for this document type</p>
                 ) : (
                   <div className="space-y-3">
                     {getFieldDefinitionsForDocument(selectedDocument).map(field => {
                       const fieldValue = selectedDocument.data?.[field.slug];
+                      // Extract the display value from Affinda's data structure
+                      // Values can be: primitives, objects with 'parsed'/'raw', or null
+                      let displayValue: string | null = null;
+                      if (fieldValue !== undefined && fieldValue !== null) {
+                        if (typeof fieldValue === 'object' && !Array.isArray(fieldValue)) {
+                          // Affinda returns objects with 'parsed' and 'raw' properties
+                          displayValue = fieldValue.parsed ?? fieldValue.raw ?? fieldValue.value ?? null;
+                          if (displayValue === null) {
+                            // Fallback: try to stringify if it's a simple object
+                            const keys = Object.keys(fieldValue);
+                            if (keys.length > 0 && keys.length <= 3) {
+                              displayValue = JSON.stringify(fieldValue);
+                            }
+                          }
+                        } else if (Array.isArray(fieldValue)) {
+                          // Handle arrays - extract parsed/raw from each item
+                          displayValue = fieldValue
+                            .map(item => typeof item === 'object' ? (item.parsed ?? item.raw ?? item.value ?? JSON.stringify(item)) : String(item))
+                            .join(', ');
+                        } else {
+                          displayValue = String(fieldValue);
+                        }
+                      }
                       return (
                         <div key={field.id} className="bg-gray-50 rounded-lg p-4">
                           <div className="flex items-start justify-between mb-2">
@@ -474,8 +595,8 @@ function DocumentsPage() {
                           </div>
                           <div className="bg-white rounded p-2 border border-gray-200">
                             <p className="text-sm font-mono text-gray-900">
-                              {fieldValue !== undefined && fieldValue !== null
-                                ? String(fieldValue)
+                              {displayValue !== null
+                                ? displayValue
                                 : <span className="text-gray-400 italic">No value extracted</span>
                               }
                             </p>
@@ -518,14 +639,20 @@ function DocumentsPage() {
                 >
                   {isRefreshing ? 'Refreshing...' : 'Refresh from Affinda'}
                 </button>
-                <a
-                  href={`https://app.affinda.com/document/${selectedDocument.identifier}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block text-center bg-gradient-to-r from-purple-600 to-blue-600 text-white py-3 rounded-lg font-semibold hover:from-purple-700 hover:to-blue-700 transition"
-                >
-                  Open in Affinda
-                </a>
+                {selectedDocument.review_url ? (
+                  <a
+                    href={selectedDocument.review_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block text-center bg-gradient-to-r from-purple-600 to-blue-600 text-white py-3 rounded-lg font-semibold hover:from-purple-700 hover:to-blue-700 transition"
+                  >
+                    Open in Affinda
+                  </a>
+                ) : (
+                  <span className="block text-center bg-gray-300 text-gray-500 py-3 rounded-lg font-semibold cursor-not-allowed">
+                    No Review URL
+                  </span>
+                )}
                 {selectedDocument.file_url && (
                   <a
                     href={selectedDocument.file_url}

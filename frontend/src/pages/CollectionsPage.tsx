@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { collectionsApi, workspacesApi, type Collection, type CollectionSyncStatus } from '../api/client';
@@ -43,7 +43,7 @@ function CollectionsPage() {
     onSuccess: ({ identifier, data }) => {
       setSyncingCollection(identifier);
       // Start polling for status
-      pollSyncStatus(identifier, data.sync_history_id);
+      pollSyncStatus(identifier, data.sync_id);
     },
     onError: (error: any) => {
       setSyncMessage({
@@ -55,7 +55,7 @@ function CollectionsPage() {
   });
 
   // Poll sync status
-  const pollSyncStatus = async (identifier: string, syncHistoryId: number) => {
+  const pollSyncStatus = async (identifier: string, _syncId: number) => {
     const poll = async () => {
       try {
         const response = await collectionsApi.getSyncStatus(identifier);
@@ -104,21 +104,21 @@ function CollectionsPage() {
 
   if (isLoading) return (
     <div className="p-6 md:p-8 lg:p-10 w-full max-w-7xl">
-      <div className="text-center text-gray-500">Loading collections...</div>
+      <div className="text-center text-gray-500">Loading document types...</div>
     </div>
   );
 
   if (error) return (
     <div className="p-6 md:p-8 lg:p-10 w-full max-w-7xl">
-      <div className="text-center text-red-600">Error loading collections: {String(error)}</div>
+      <div className="text-center text-red-600">Error loading document types: {String(error)}</div>
     </div>
   );
 
   return (
     <div className="p-6 md:p-8 lg:p-10 w-full max-w-7xl">
       <div className="mb-8">
-        <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Collections</h1>
-        <p className="text-gray-500 mt-1">View and manage document collections</p>
+        <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Document Types</h1>
+        <p className="text-gray-500 mt-1">View and manage Affinda document types</p>
         {workspaceData && (
           <div className="mt-4 inline-flex items-center gap-2 bg-purple-100 text-purple-700 px-4 py-2 rounded-lg">
             <span className="text-sm font-medium">Filtered by workspace: {workspaceData.name}</span>
@@ -227,13 +227,13 @@ function CollectionsPage() {
         </div>
       ) : (
         <div className="bg-white rounded-xl p-12 shadow-sm text-center">
-          <p className="text-gray-500">No collections found. Sync workspaces first to import collections.</p>
+          <p className="text-gray-500">No document types found. Sync workspaces first to import document types.</p>
         </div>
       )}
 
       {data && data.count > 0 && (
         <div className="mt-6 text-center text-sm text-gray-500">
-          Showing {data.results.length} of {data.count} collections
+          Showing {data.results.length} of {data.count} document types
         </div>
       )}
 
@@ -244,11 +244,22 @@ function CollectionsPage() {
             <h3 className="text-xl font-semibold text-gray-900 mb-4">Confirm Full Sync</h3>
             <div className="space-y-4">
               <p className="text-gray-600">
-                You are about to sync all documents from the collection:
+                You are about to sync all documents for this document type:
               </p>
               <div className="p-3 bg-gray-50 rounded-lg">
                 <p className="font-semibold text-gray-900">{showSyncConfirm.name || showSyncConfirm.identifier}</p>
                 <p className="text-sm text-gray-500 font-mono">{showSyncConfirm.identifier}</p>
+              </div>
+              <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                <div className="flex items-start gap-2">
+                  <svg className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div className="text-sm text-blue-800">
+                    <p className="font-medium">How sync works</p>
+                    <p className="mt-1">This will first try to fetch documents assigned to this document type. If none are found, it will fetch all documents from the workspace instead.</p>
+                  </div>
+                </div>
               </div>
               <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
                 <div className="flex items-start gap-2">
@@ -257,7 +268,7 @@ function CollectionsPage() {
                   </svg>
                   <div className="text-sm text-amber-800">
                     <p className="font-medium">Warning</p>
-                    <p className="mt-1">This operation will fetch all documents from Affinda for this collection. For large collections, this may take several minutes and use significant API quota.</p>
+                    <p className="mt-1">For large workspaces, this may take several minutes and use significant API quota.</p>
                   </div>
                 </div>
               </div>

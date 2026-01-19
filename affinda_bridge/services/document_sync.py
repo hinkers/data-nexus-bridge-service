@@ -54,18 +54,22 @@ def full_collection_sync(
     sync_history: SyncHistory,
 ) -> int:
     """
-    Sync all documents from a collection in Affinda.
+    Sync all documents from a collection/document type in Affinda.
     Updates progress in the provided SyncHistory record.
 
+    Note: If no documents are found querying by collection/document_type,
+    this will fall back to querying by workspace to capture all documents
+    including those not yet assigned to a document type.
+
     Args:
-        collection: The Collection to sync
+        collection: The Collection (document type) to sync
         sync_history: SyncHistory record to update with progress
 
     Returns:
         Total number of documents synced
     """
-    logger.info(f"Starting full collection sync for {collection.name}")
-    SyncLogEntry.info(sync_history, f"Starting full collection sync for {collection.name}")
+    logger.info(f"Starting full sync for document type: {collection.name}")
+    SyncLogEntry.info(sync_history, f"Starting full sync for document type: {collection.name}")
 
     sync_history.status = SyncHistory.STATUS_IN_PROGRESS
     sync_history.save(update_fields=["status"])
@@ -78,29 +82,60 @@ def full_collection_sync(
 
     try:
         with AffindaClient() as client:
-            # First, get the total count
+            # First, try to get documents by collection/document_type identifier
             initial_response = client.list_documents(
                 collection=collection.identifier,
                 limit=1,
                 count=True,
             )
             total_count = initial_response.get("count", 0)
+            query_mode = "collection"
+
+            logger.info(f"Query by document_type '{collection.identifier}' found {total_count} documents")
+
+            # If no documents found by collection, try workspace
+            if total_count == 0 and collection.workspace:
+                workspace_response = client.list_documents(
+                    workspace=collection.workspace.identifier,
+                    limit=1,
+                    count=True,
+                )
+                workspace_count = workspace_response.get("count", 0)
+                logger.info(f"Query by workspace '{collection.workspace.identifier}' found {workspace_count} documents")
+
+                if workspace_count > 0:
+                    total_count = workspace_count
+                    query_mode = "workspace"
+                    SyncLogEntry.info(
+                        sync_history,
+                        f"No documents found by document type, falling back to workspace query. Found {workspace_count} documents"
+                    )
+
             sync_history.total_documents = total_count
             sync_history.save(update_fields=["total_documents"])
 
-            logger.info(f"Found {total_count} documents in collection {collection.name}")
-            SyncLogEntry.info(sync_history, f"Found {total_count} documents to sync")
+            logger.info(f"Found {total_count} documents for {collection.name} (query mode: {query_mode})")
+            SyncLogEntry.info(sync_history, f"Found {total_count} documents to sync (query mode: {query_mode})")
 
             # Paginate through all documents
+            # Note: include_data is deprecated, we fetch document IDs then get each document
             batch_number = 0
             while True:
                 batch_number += 1
-                response = client.list_documents(
-                    collection=collection.identifier,
-                    offset=offset,
-                    limit=BATCH_SIZE,
-                    include_data=True,
-                )
+
+                # Use appropriate query based on what returned results
+                if query_mode == "workspace" and collection.workspace:
+                    response = client.list_documents(
+                        workspace=collection.workspace.identifier,
+                        offset=offset,
+                        limit=BATCH_SIZE,
+                    )
+                else:
+                    response = client.list_documents(
+                        collection=collection.identifier,
+                        offset=offset,
+                        limit=BATCH_SIZE,
+                    )
 
                 documents = response.get("results", [])
                 if not documents:
@@ -111,12 +146,22 @@ def full_collection_sync(
                     f"Processing batch {batch_number} ({len(documents)} documents, offset {offset})"
                 )
 
-                for doc_data in documents:
-                    doc_identifier = doc_data.get("identifier", "unknown")
+                for doc_summary in documents:
+                    # Handle nested meta structure from Affinda API
+                    # Documents may have data in top-level or nested under 'meta' key
+                    meta = doc_summary.get("meta", {})
+                    doc_identifier = meta.get("identifier") or doc_summary.get("identifier", "unknown")
+
+                    logger.debug(f"Processing document: identifier={doc_identifier}, has_meta={bool(meta)}")
+
                     try:
                         existing = Document.objects.filter(
                             identifier=doc_identifier
                         ).exists()
+
+                        # Fetch full document data (include_data is deprecated)
+                        logger.debug(f"Fetching full document data for {doc_identifier}")
+                        doc_data = client.get_document(identifier=doc_identifier)
 
                         document = _create_or_update_document(doc_data)
                         if document:
@@ -330,6 +375,40 @@ def selective_document_sync(
     return total_synced
 
 
+def _normalize_document_data(doc_data: dict) -> dict:
+    """
+    Normalize document data from Affinda API.
+
+    The Affinda API returns documents with data nested under a 'meta' key.
+    This function extracts and flattens the data for easier processing.
+
+    Args:
+        doc_data: Raw document data from Affinda API
+
+    Returns:
+        Normalized document dictionary with fields at top level
+    """
+    # If data has 'meta' key, extract fields from there
+    meta = doc_data.get("meta", {})
+    if meta:
+        # Start with meta data as the base
+        normalized = dict(meta)
+        # Add any top-level fields that aren't in meta
+        for key, value in doc_data.items():
+            if key not in ("meta", "error", "warnings") and key not in normalized:
+                normalized[key] = value
+        # Preserve the original 'data' field if present in meta
+        if "data" not in normalized and "data" in doc_data:
+            normalized["data"] = doc_data["data"]
+        # Store the full original response for reference
+        normalized["_raw"] = doc_data
+        return normalized
+    # If no meta key, return as-is with _raw reference
+    result = dict(doc_data)
+    result["_raw"] = doc_data
+    return result
+
+
 def _create_or_update_document(doc_data: dict) -> Optional[Document]:
     """
     Create or update a Document from Affinda API response data.
@@ -340,7 +419,10 @@ def _create_or_update_document(doc_data: dict) -> Optional[Document]:
     Returns:
         The created/updated Document, or None if failed
     """
-    identifier = doc_data.get("identifier")
+    # Normalize the document data structure
+    normalized = _normalize_document_data(doc_data)
+
+    identifier = normalized.get("identifier")
     if not identifier:
         logger.warning("Document data missing identifier")
         return None
@@ -350,14 +432,15 @@ def _create_or_update_document(doc_data: dict) -> Optional[Document]:
         workspace = None
         collection = None
 
-        workspace_data = doc_data.get("workspace")
+        workspace_data = normalized.get("workspace")
         if workspace_data:
             from affinda_bridge.models import Workspace
             workspace_id = workspace_data.get("identifier") if isinstance(workspace_data, dict) else workspace_data
             if workspace_id:
                 workspace = Workspace.objects.filter(identifier=workspace_id).first()
 
-        collection_data = doc_data.get("collection")
+        # Check both collection and document_type fields
+        collection_data = normalized.get("collection") or normalized.get("document_type")
         if collection_data:
             collection_id = collection_data.get("identifier") if isinstance(collection_data, dict) else collection_data
             if collection_id:
@@ -367,29 +450,29 @@ def _create_or_update_document(doc_data: dict) -> Optional[Document]:
             document, created = Document.objects.update_or_create(
                 identifier=identifier,
                 defaults={
-                    "custom_identifier": doc_data.get("custom_identifier", "") or "",
-                    "file_name": doc_data.get("file_name", "") or doc_data.get("fileName", "") or "",
-                    "file_url": doc_data.get("file_url", "") or doc_data.get("fileUrl", "") or "",
-                    "review_url": doc_data.get("review_url", "") or doc_data.get("reviewUrl", "") or "",
+                    "custom_identifier": normalized.get("custom_identifier", "") or normalized.get("customIdentifier", "") or "",
+                    "file_name": normalized.get("file_name", "") or normalized.get("fileName", "") or "",
+                    "file_url": normalized.get("file_url", "") or normalized.get("fileUrl", "") or "",
+                    "review_url": normalized.get("review_url", "") or normalized.get("reviewUrl", "") or "",
                     "workspace": workspace,
                     "collection": collection,
-                    "state": doc_data.get("state", "") or "",
-                    "is_confirmed": doc_data.get("is_confirmed", False) or doc_data.get("isConfirmed", False) or False,
-                    "in_review": doc_data.get("in_review", False) or doc_data.get("inReview", False) or False,
-                    "failed": doc_data.get("failed", False) or False,
-                    "ready": doc_data.get("ready", False) or False,
-                    "validatable": doc_data.get("validatable", False) or False,
-                    "has_challenges": doc_data.get("has_challenges", False) or doc_data.get("hasChallenges", False) or False,
-                    "data": doc_data.get("data", {}) or {},
-                    "meta": doc_data.get("meta", {}) or {},
-                    "tags": doc_data.get("tags", []) or [],
-                    "raw": doc_data,
+                    "state": normalized.get("state", "") or "",
+                    "is_confirmed": normalized.get("is_confirmed", False) or normalized.get("isConfirmed", False) or False,
+                    "in_review": normalized.get("in_review", False) or normalized.get("inReview", False) or False,
+                    "failed": normalized.get("failed", False) or False,
+                    "ready": normalized.get("ready", False) or False,
+                    "validatable": normalized.get("validatable", False) or False,
+                    "has_challenges": normalized.get("has_challenges", False) or normalized.get("hasChallenges", False) or False,
+                    "data": normalized.get("data", {}) or {},
+                    "meta": doc_data.get("meta", {}) or {},  # Store original meta
+                    "tags": normalized.get("tags", []) or [],
+                    "raw": normalized.get("_raw", doc_data),  # Store original response
                     "last_updated_dt": timezone.now(),
                 },
             )
 
             # Parse dates if present
-            created_dt = doc_data.get("created_dt") or doc_data.get("createdDt")
+            created_dt = normalized.get("created_dt") or normalized.get("createdDt")
             if created_dt:
                 try:
                     from django.utils.dateparse import parse_datetime
@@ -399,7 +482,7 @@ def _create_or_update_document(doc_data: dict) -> Optional[Document]:
                 except Exception:
                     pass
 
-            uploaded_dt = doc_data.get("uploaded_dt") or doc_data.get("uploadedDt")
+            uploaded_dt = normalized.get("uploaded_dt") or normalized.get("uploadedDt")
             if uploaded_dt:
                 try:
                     from django.utils.dateparse import parse_datetime

@@ -1,3 +1,4 @@
+import logging
 import os
 
 import httpx
@@ -5,6 +6,8 @@ from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
+
+logger = logging.getLogger(__name__)
 
 from affinda_bridge.clients import AffindaClient
 from affinda_bridge.models import (
@@ -18,6 +21,7 @@ from affinda_bridge.models import (
     FieldDefinition,
     SyncHistory,
     SyncSchedule,
+    SystemSettings,
     Workspace,
 )
 from affinda_bridge.serializers import (
@@ -62,9 +66,12 @@ class WorkspaceViewSet(viewsets.ReadOnlyModelViewSet):
         sync_collections = SyncHistory.objects.create(sync_type=SyncHistory.SYNC_TYPE_COLLECTIONS)
         sync_fields = SyncHistory.objects.create(sync_type=SyncHistory.SYNC_TYPE_FIELD_DEFINITIONS)
 
-        organization = os.environ.get("AFFINDA_ORG_ID")
+        # Get organization from database settings first, then fall back to environment
+        organization = SystemSettings.get_value(SystemSettings.SETTING_AFFINDA_ORGANIZATION)
         if not organization:
-            error_msg = "AFFINDA_ORG_ID not set"
+            organization = os.environ.get("AFFINDA_ORG_ID") or os.environ.get("AFFINDA_ORGANIZATION")
+        if not organization:
+            error_msg = "Organization ID not set. Please configure it in Settings."
             for sync_record in [sync_workspaces, sync_collections, sync_fields]:
                 sync_record.completed_at = timezone.now()
                 sync_record.success = False
@@ -82,11 +89,14 @@ class WorkspaceViewSet(viewsets.ReadOnlyModelViewSet):
 
         try:
             with AffindaClient() as client:
+                logger.info(f"Syncing workspaces for organization: {organization}")
                 workspaces = client.list_workspaces(organization=organization)
+                logger.info(f"list_workspaces returned {len(workspaces)} workspaces: {workspaces}")
                 data_points = client.list_data_points(
                     organization=organization,
                     include_public=True,
                 )
+                logger.info(f"list_data_points returned {len(data_points)} data points")
 
                 for workspace in workspaces:
                     workspace_id = workspace.get("identifier")
@@ -102,6 +112,60 @@ class WorkspaceViewSet(viewsets.ReadOnlyModelViewSet):
                     )
                     workspaces_upserted += 1
 
+                    # Get document types for this workspace (new Affinda model)
+                    # Document types are stored as Collections for backwards compatibility
+                    document_type_ids = workspace.get("document_types", [])
+                    logger.info(f"Workspace {workspace_id} has document_types: {document_type_ids}")
+
+                    for doc_type_id in document_type_ids:
+                        try:
+                            doc_type = client.get_document_type(identifier=doc_type_id)
+                            logger.info(f"Got document type: {doc_type}")
+
+                            collection_obj, _ = Collection.objects.update_or_create(
+                                identifier=doc_type_id,
+                                defaults={
+                                    "name": doc_type.get("name", ""),
+                                    "workspace": workspace_obj,
+                                    "raw": doc_type,
+                                },
+                            )
+                            collections_upserted += 1
+
+                            # Get field definitions from document type schema
+                            try:
+                                schema = client.get_document_type_schema(identifier=doc_type_id)
+                                properties = schema.get("properties", {})
+                                logger.info(f"Document type {doc_type_id} has {len(properties)} fields")
+
+                                for field_name, field_schema in properties.items():
+                                    # Convert JSON schema type to data type
+                                    field_types = field_schema.get("type", [])
+                                    if isinstance(field_types, list):
+                                        # Filter out 'null' to get the actual type
+                                        data_type = next((t for t in field_types if t != "null"), "string")
+                                    else:
+                                        data_type = field_types
+
+                                    FieldDefinition.objects.update_or_create(
+                                        collection=collection_obj,
+                                        datapoint_identifier=field_name,
+                                        defaults={
+                                            "name": field_name,
+                                            "slug": field_name,
+                                            "data_type": data_type,
+                                            "raw": field_schema,
+                                        },
+                                    )
+                                    fields_upserted += 1
+                            except Exception as schema_err:
+                                logger.warning(f"Could not get schema for document type {doc_type_id}: {schema_err}")
+
+                        except Exception as dt_err:
+                            logger.warning(f"Could not get document type {doc_type_id}: {dt_err}")
+                            continue
+
+                    # Also try legacy collections (for backwards compatibility)
                     collections = client.list_collections(
                         workspace=workspace_obj.identifier,
                     )
@@ -376,6 +440,42 @@ class DocumentViewSet(viewsets.ReadOnlyModelViewSet):
             "document_id": document.id,
             "sync_enabled": document.sync_enabled,
         })
+
+    @action(detail=True, methods=["patch"], url_path="update-custom-identifier")
+    def update_custom_identifier(self, request, pk=None):
+        """
+        Update the custom identifier for a document and sync it to Affinda.
+
+        Request body:
+            custom_identifier: The new custom identifier value
+        """
+        document = self.get_object()
+        new_custom_identifier = request.data.get("custom_identifier", "")
+
+        try:
+            # Update in Affinda first
+            client = AffindaClient()
+            client.update_document(
+                identifier=document.identifier,
+                custom_identifier=new_custom_identifier,
+            )
+
+            # Update local database
+            document.custom_identifier = new_custom_identifier
+            document.save(update_fields=["custom_identifier"])
+
+            return Response({
+                "success": True,
+                "message": "Custom identifier updated successfully",
+                "document_id": document.id,
+                "custom_identifier": document.custom_identifier,
+            })
+
+        except Exception as e:
+            return Response(
+                {"success": False, "message": f"Failed to update custom identifier: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
     @action(detail=False, methods=["post"], url_path="selective-sync")
     def selective_sync(self, request):

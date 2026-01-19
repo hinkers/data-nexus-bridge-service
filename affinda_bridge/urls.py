@@ -32,6 +32,7 @@ urlpatterns = [
     path("api/system/affinda/update/", system_views.update_affinda_settings, name="system-affinda-update"),
     path("api/system/affinda/test/", system_views.test_affinda_connection, name="system-affinda-test"),
     path("api/system/affinda/clear/", system_views.clear_affinda_api_key, name="system-affinda-clear"),
+    path("api/system/affinda/organizations/", system_views.get_affinda_organizations, name="system-affinda-organizations"),
     # Webhook configuration endpoints
     path("api/system/webhooks/", system_views.get_webhook_config, name="system-webhooks"),
     path("api/system/webhooks/update/", system_views.update_webhook_config, name="system-webhooks-update"),

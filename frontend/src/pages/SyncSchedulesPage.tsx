@@ -1,6 +1,6 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { syncSchedulesApi, syncHistoryApi, collectionsApi, type SyncSchedule, type SyncScheduleRun, type Collection, type DataSourceInstance } from '../api/client';
+import { collectionsApi, syncHistoryApi, syncSchedulesApi, type Collection, type DataSourceInstance, type SyncSchedule, type SyncScheduleRun } from '../api/client';
 
 function SyncSchedulesPage() {
   const queryClient = useQueryClient();
@@ -215,7 +215,7 @@ function SyncSchedulesPage() {
 
     // Validate: full_collection requires a collection
     if (formData.sync_type === 'full_collection' && !formData.collection) {
-      setMessage({ type: 'error', text: 'Full collection sync requires selecting a collection' });
+      setMessage({ type: 'error', text: 'Full sync requires selecting a document type' });
       return;
     }
 
@@ -339,7 +339,7 @@ function SyncSchedulesPage() {
                       </>
                     ) : (
                       <>
-                        <span className="font-medium">Collection:</span> {schedule.collection_name || 'All'}
+                        <span className="font-medium">Document Type:</span> {schedule.collection_name || 'All'}
                       </>
                     )}
                   </div>
@@ -536,7 +536,7 @@ function SyncSchedulesPage() {
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   required
-                  placeholder="Daily sync at 2am"
+                  placeholder="Sync every 15 mins on Workdays"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                 />
               </div>
@@ -555,11 +555,11 @@ function SyncSchedulesPage() {
                 </select>
               </div>
 
-              {/* Collection - only for document sync types */}
+              {/* Document Type - only for document sync types */}
               {formData.sync_type !== 'data_source' && (
                 <div>
                   <label className="block text-sm font-medium text-gray-600 mb-1">
-                    Collection {formData.sync_type === 'full_collection' && <span className="text-red-500">*</span>}
+                    Document Type {formData.sync_type === 'full_collection' && <span className="text-red-500">*</span>}
                   </label>
                   <select
                     value={formData.collection}
@@ -568,7 +568,7 @@ function SyncSchedulesPage() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   >
                     <option value="">
-                      {formData.sync_type === 'full_collection' ? 'Select a collection' : 'All collections'}
+                      {formData.sync_type === 'full_collection' ? 'Select a document type' : 'All document types'}
                     </option>
                     {collections?.results?.map((col: Collection) => (
                       <option key={col.id} value={col.id}>{col.name || col.identifier}</option>
@@ -576,8 +576,8 @@ function SyncSchedulesPage() {
                   </select>
                   <p className="text-xs text-gray-500 mt-1">
                     {formData.sync_type === 'full_collection'
-                      ? 'Required: Select which collection to sync'
-                      : 'Optional: Leave empty to sync all collections'}
+                      ? 'Required: Select which document type to sync'
+                      : 'Optional: Leave empty to sync all document types'}
                   </p>
                 </div>
               )}

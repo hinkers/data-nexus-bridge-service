@@ -54,6 +54,9 @@ class Workspace(models.Model):
     organization_identifier = models.CharField(max_length=64, blank=True)
     raw = models.JSONField(default=dict, blank=True)
 
+    class Meta:
+        ordering = ["name"]
+
     def __str__(self) -> str:
         return self.name or self.identifier
 
@@ -77,6 +80,7 @@ class FieldDefinition(models.Model):
     raw = models.JSONField(default=dict, blank=True)
 
     class Meta:
+        ordering = ["collection", "name"]
         constraints = [
             models.UniqueConstraint(
                 fields=["collection", "datapoint_identifier"],

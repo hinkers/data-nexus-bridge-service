@@ -368,7 +368,7 @@ function CollectionViewsPage() {
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Collection Views</h1>
-          <p className="text-gray-500 mt-1">Create and manage SQL database views for your collections</p>
+          <p className="text-gray-500 mt-1">Create and manage SQL database views for your document types</p>
         </div>
         <button
           onClick={() => setShowCreateModal(true)}
@@ -392,7 +392,7 @@ function CollectionViewsPage() {
           <div className="text-6xl mb-4">📊</div>
           <h3 className="text-xl font-semibold text-gray-900 mb-2">No Views Yet</h3>
           <p className="text-gray-600 mb-6">
-            Create a view to generate SQL database views from your collection data.
+            Create a view to generate SQL database views from your document type data.
           </p>
           <button
             onClick={() => setShowCreateModal(true)}
@@ -420,7 +420,7 @@ function CollectionViewsPage() {
                     </span>
                   </div>
                   <p className="text-sm text-gray-600 mb-3">
-                    Collection: <span className="font-medium">{view.collection_name}</span>
+                    Document Type: <span className="font-medium">{view.collection_name}</span>
                   </p>
                   {view.description && (
                     <p className="text-sm text-gray-500 mb-3">{view.description}</p>
@@ -522,13 +522,13 @@ function CollectionViewsPage() {
             <h2 className="text-xl font-semibold mb-4">Create Collection View</h2>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Collection</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Document Type</label>
                 <select
                   value={createForm.collection}
                   onChange={(e) => setCreateForm({ ...createForm, collection: Number(e.target.value) })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
                 >
-                  <option value={0}>Select a collection...</option>
+                  <option value={0}>Select a document type...</option>
                   {collections.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name || c.identifier}
@@ -798,7 +798,7 @@ function CollectionViewsPage() {
             </p>
             {availableExtTables.length === 0 ? (
               <div className="text-center py-8">
-                <p className="text-gray-500 mb-2">No external tables available for this collection.</p>
+                <p className="text-gray-500 mb-2">No external tables available for this document type.</p>
                 <a
                   href="/dashboard/external-tables"
                   className="text-purple-600 hover:text-purple-700 text-sm"

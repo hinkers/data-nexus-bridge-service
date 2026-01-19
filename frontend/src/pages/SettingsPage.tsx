@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { systemApi, webhooksApi, type AffindaSettings } from '../api/client';
+import { systemApi, webhooksApi, type AffindaSettings, type AffindaOrganization } from '../api/client';
 
 type SettingsTab = 'system' | 'affinda' | 'webhooks' | 'updates';
 
@@ -90,6 +90,24 @@ function SettingsPage() {
     },
   });
 
+  // Fetch available organizations when API key is configured
+  const { data: organizationsData, isLoading: loadingOrganizations, refetch: refetchOrganizations } = useQuery({
+    queryKey: ['system', 'affinda', 'organizations'],
+    queryFn: async () => {
+      const response = await systemApi.getAffindaOrganizations();
+      return response.data;
+    },
+    enabled: !!affindaSettings?.is_configured,
+  });
+
+  // Update organizationInput when affindaSettings loads (only on initial load)
+  useEffect(() => {
+    if (affindaSettings?.organization) {
+      setOrganizationInput(affindaSettings.organization);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [affindaSettings?.organization]);
+
   // Mutations
   const updateAffindaSettingsMutation = useMutation({
     mutationFn: async (data: { api_key?: string; base_url?: string; organization?: string }) => {
@@ -101,6 +119,8 @@ function SettingsPage() {
       setShowApiKeyInput(false);
       setApiKeyInput('');
       queryClient.invalidateQueries({ queryKey: ['system', 'affinda'] });
+      // Also refresh organizations in case the API key changed
+      queryClient.invalidateQueries({ queryKey: ['system', 'affinda', 'organizations'] });
     },
     onError: (error: any) => {
       setAffindaResult({
@@ -464,7 +484,7 @@ function SettingsPage() {
                         {' '}and copy your API key from the "API Keys" section.
                       </li>
                       <li>
-                        <span className="font-medium">Organization ID:</span> Found in your Affinda dashboard URL (e.g., app.affinda.com/org/<span className="font-mono bg-blue-100 px-1 rounded">your-org-id</span>/...) or in your organization settings.
+                        <span className="font-medium">Organization:</span> Once you enter and save your API key, available organizations will be shown in a dropdown. Select the organization you want to sync data from.
                       </li>
                     </ul>
                   </div>
@@ -550,14 +570,49 @@ function SettingsPage() {
 
                       {/* Organization */}
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Organization ID</label>
-                        <input
-                          type="text"
-                          value={organizationInput}
-                          onChange={(e) => setOrganizationInput(e.target.value)}
-                          placeholder={affindaSettings.organization || 'Your Affinda organization ID'}
-                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                        />
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Organization</label>
+                        {loadingOrganizations ? (
+                          <div className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-gray-50 text-gray-500">
+                            Loading organizations...
+                          </div>
+                        ) : organizationsData?.organizations && organizationsData.organizations.length > 0 ? (
+                          <select
+                            value={organizationInput}
+                            onChange={(e) => setOrganizationInput(e.target.value)}
+                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white"
+                          >
+                            <option value="">Select an organization...</option>
+                            {organizationsData.organizations.map((org: AffindaOrganization) => (
+                              <option key={org.identifier} value={org.identifier}>
+                                {org.name} ({org.identifier})
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <div className="space-y-2">
+                            <input
+                              type="text"
+                              value={organizationInput}
+                              onChange={(e) => setOrganizationInput(e.target.value)}
+                              placeholder={affindaSettings.organization || 'Your Affinda organization ID'}
+                              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                            />
+                            {affindaSettings.is_configured && (
+                              <button
+                                type="button"
+                                onClick={() => refetchOrganizations()}
+                                className="text-xs text-purple-600 hover:text-purple-700"
+                              >
+                                Refresh organizations
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        {organizationsData?.organizations && organizationsData.organizations.length > 0 && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            Select your organization from the dropdown above.
+                          </p>
+                        )}
                       </div>
 
                       {/* Advanced Settings */}

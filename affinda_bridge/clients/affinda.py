@@ -1,8 +1,7 @@
 import os
 from typing import Any, Dict, Optional
 
-from affinda import AffindaAPI
-from azure.core.credentials import AzureKeyCredential
+from affinda import AffindaAPI, TokenCredential
 
 
 def get_api_key_from_settings() -> str:
@@ -48,7 +47,7 @@ class AffindaClient:
 
         base = base_url or get_base_url_from_settings()
 
-        credential = AzureKeyCredential(token)
+        credential = TokenCredential(token=token)
         self._client = AffindaAPI(
             credential=credential,
             endpoint=base,
@@ -63,6 +62,13 @@ class AffindaClient:
     def __exit__(self, exc_type, exc, tb) -> None:
         self.close()
 
+    def list_organizations(self) -> list[Dict[str, Any]]:
+        """List all organizations accessible by the API key."""
+        organizations = self._client.get_all_organizations()
+        if isinstance(organizations, list):
+            return [self._model_to_dict(org) for org in organizations]
+        return []
+
     def list_documents(
         self,
         *,
@@ -75,7 +81,6 @@ class AffindaClient:
         created_dt: Optional[str] = None,
         search: Optional[str] = None,
         ordering: Optional[list[str]] = None,
-        include_data: Optional[bool] = None,
         exclude: Optional[list[str]] = None,
         in_review: Optional[bool] = None,
         failed: Optional[bool] = None,
@@ -86,7 +91,11 @@ class AffindaClient:
         compact: Optional[bool] = None,
         count: Optional[bool] = None,
     ) -> Dict[str, Any]:
-        """List all documents with optional filtering."""
+        """List all documents with optional filtering.
+
+        Note: include_data parameter has been deprecated in the Affinda API.
+        Use get_document() to fetch full document data for individual documents.
+        """
         response = self._client.get_all_documents(
             offset=offset,
             limit=limit,
@@ -96,7 +105,6 @@ class AffindaClient:
             created_dt=created_dt,
             search=search,
             ordering=ordering,
-            include_data=include_data,
             exclude=exclude,
             in_review=in_review,
             failed=failed,
@@ -126,6 +134,38 @@ class AffindaClient:
         doc = self._client.get_document(identifier=identifier, compact=compact)
         return self._model_to_dict(doc)
 
+    def update_document(
+        self,
+        *,
+        identifier: str,
+        custom_identifier: Optional[str] = None,
+        file_name: Optional[str] = None,
+        is_confirmed: Optional[bool] = None,
+        is_archived: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        """Update a document's metadata in Affinda.
+
+        Args:
+            identifier: The Affinda document identifier
+            custom_identifier: Optional custom identifier to set
+            file_name: Optional file name to set
+            is_confirmed: Optional confirmation status
+            is_archived: Optional archive status
+
+        Returns:
+            Updated document data
+        """
+        from affinda.models import DocumentUpdate
+
+        update_body = DocumentUpdate(
+            custom_identifier=custom_identifier,
+            file_name=file_name,
+            is_confirmed=is_confirmed,
+            is_archived=is_archived,
+        )
+        doc = self._client.update_document(identifier=identifier, body=update_body)
+        return self._model_to_dict(doc)
+
     def list_workspaces(
         self,
         *,
@@ -133,18 +173,34 @@ class AffindaClient:
         name: Optional[str] = None,
     ) -> list[Dict[str, Any]]:
         """List all workspaces for an organization."""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        logger.info(f"Calling get_all_workspaces with organization='{organization}'")
         workspaces = self._client.get_all_workspaces(
             organization=organization,
             name=name,
         )
-        # Handle both paginated and list responses
+
+        logger.info(f"Workspaces response type: {type(workspaces)}, raw value: {workspaces}")
+
+        # Handle paginated response with results attribute
         if hasattr(workspaces, "results"):
-            results = getattr(workspaces, "results", [])
-            if results:
-                return [self._model_to_dict(ws) for ws in results]
+            results = getattr(workspaces, "results", []) or []
+            logger.info(f"Found {len(results)} workspaces in results attribute")
+            return [self._model_to_dict(ws) for ws in results]
         # If it's already a list, convert directly
         if isinstance(workspaces, list):
+            logger.info(f"Found {len(workspaces)} workspaces as list")
             return [self._model_to_dict(ws) for ws in workspaces]
+        # Try to iterate if it's iterable (some SDK versions return generators or other iterables)
+        if workspaces is not None:
+            try:
+                ws_list = list(workspaces)
+                logger.info(f"Found {len(ws_list)} workspaces as iterable")
+                return [self._model_to_dict(ws) for ws in ws_list]
+            except TypeError:
+                logger.warning(f"Could not iterate workspaces response: {workspaces}")
         return []
 
     def list_collections(
@@ -152,7 +208,7 @@ class AffindaClient:
         *,
         workspace: str,
     ) -> list[Dict[str, Any]]:
-        """List all collections in a workspace."""
+        """List all collections in a workspace (legacy - use list_document_types instead)."""
         collections = self._client.get_all_collections(workspace=workspace)
         # Handle both paginated and list responses
         if hasattr(collections, "results"):
@@ -163,6 +219,31 @@ class AffindaClient:
         if isinstance(collections, list):
             return [self._model_to_dict(col) for col in collections]
         return []
+
+    def list_document_types(
+        self,
+        *,
+        organization: Optional[str] = None,
+        workspace: Optional[str] = None,
+    ) -> list[Dict[str, Any]]:
+        """List all document types for an organization or workspace."""
+        doc_types = self._client.get_document_types(
+            organization=organization,
+            workspace=workspace,
+        )
+        if isinstance(doc_types, list):
+            return [self._model_to_dict(dt) for dt in doc_types]
+        return []
+
+    def get_document_type(self, *, identifier: str) -> Dict[str, Any]:
+        """Get a specific document type by identifier."""
+        doc_type = self._client.get_document_type(identifier=identifier)
+        return self._model_to_dict(doc_type)
+
+    def get_document_type_schema(self, *, identifier: str) -> Dict[str, Any]:
+        """Get the JSON schema for a document type, which contains field definitions."""
+        schema = self._client.json_schema_from_document_type(identifier=identifier)
+        return schema if isinstance(schema, dict) else {}
 
     def get_collection(self, *, identifier: str) -> Dict[str, Any]:
         """Get a specific collection by identifier."""

@@ -170,7 +170,7 @@ function DashboardPage() {
               <p className="text-2xl font-bold text-white">
                 {isLoading ? '–' : reports?.collections.total || 0}
               </p>
-              <p className="text-purple-100 text-sm">Collections</p>
+              <p className="text-purple-100 text-sm">Document Types</p>
             </div>
             <svg className="w-5 h-5 text-white/40 group-hover:text-white group-hover:translate-x-1 transition-all flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -277,8 +277,16 @@ function DashboardPage() {
                           ? 'bg-red-100 text-red-700'
                           : 'bg-blue-100 text-blue-700'
                       }`}>
-                        {run.sync_history_status === 'completed' && <span className="w-3 h-3">{Icons.check}</span>}
-                        {run.sync_history_status === 'failed' && <span className="w-3 h-3">{Icons.x}</span>}
+                        {run.sync_history_status === 'completed' && (
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                        {run.sync_history_status === 'failed' && (
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        )}
                         {run.sync_history_status}
                       </span>
                       <span className="text-xs text-gray-500">

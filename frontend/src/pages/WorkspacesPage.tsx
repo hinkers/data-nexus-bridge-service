@@ -73,7 +73,7 @@ function WorkspacesPage() {
                 to={`/dashboard/collections?workspace=${workspace.id}`}
                 className="block text-center bg-gradient-to-r from-purple-600 to-blue-600 text-white py-2 px-4 rounded-lg font-semibold hover:from-purple-700 hover:to-blue-700 transition"
               >
-                View Collections
+                View Document Types
               </Link>
             </div>
           ))}
