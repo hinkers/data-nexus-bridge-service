@@ -519,6 +519,12 @@ class ExternalTableColumn(models.Model):
         default=True,
         help_text="Whether the column allows NULL values",
     )
+    default_value = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="Default value for the column (stored as string, converted to appropriate type)",
+    )
     display_order = models.PositiveIntegerField(
         default=0,
         help_text="Order in which columns are displayed",

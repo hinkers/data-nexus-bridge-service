@@ -606,6 +606,7 @@ export interface ExternalTableColumn {
   sql_column_name: string;
   data_type: 'text' | 'integer' | 'decimal' | 'boolean' | 'date' | 'datetime';
   is_nullable: boolean;
+  default_value: string | null;
   display_order: number;
 }
 
@@ -684,12 +685,14 @@ export const externalTableColumnsApi = {
     name: string;
     data_type: string;
     is_nullable?: boolean;
+    default_value?: string | null;
     display_order?: number;
   }) => apiClient.post<ExternalTableColumn>('/api/external-table-columns/', data),
   update: (id: number, data: {
     name?: string;
     data_type?: string;
     is_nullable?: boolean;
+    default_value?: string | null;
     display_order?: number;
   }) => apiClient.patch<ExternalTableColumn>(`/api/external-table-columns/${id}/`, data),
   delete: (id: number) => apiClient.delete(`/api/external-table-columns/${id}/`),

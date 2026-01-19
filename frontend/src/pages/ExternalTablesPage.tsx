@@ -25,6 +25,7 @@ function ExternalTablesPage() {
     name: string;
     data_type: string;
     is_nullable: boolean;
+    default_value: string;
   }>>([]);
   const [isCreating, setIsCreating] = useState(false);
   const [availableTypes, setAvailableTypes] = useState<ExternalTableTypeOption[]>([
@@ -46,6 +47,7 @@ function ExternalTablesPage() {
   const [newColumnName, setNewColumnName] = useState('');
   const [newColumnType, setNewColumnType] = useState('text');
   const [newColumnNullable, setNewColumnNullable] = useState(true);
+  const [newColumnDefault, setNewColumnDefault] = useState('');
   const [isAddingColumn, setIsAddingColumn] = useState(false);
 
   // Action states
@@ -87,6 +89,7 @@ function ExternalTablesPage() {
         description: newTableDescription,
         columns: newColumns.map((col, idx) => ({
           ...col,
+          default_value: col.default_value || null,
           display_order: idx,
         })),
       });
@@ -140,6 +143,10 @@ function ExternalTablesPage() {
   };
 
   const handleDeactivate = async (table: ExternalTable) => {
+    if (!confirm(`Deactivate table "${table.name}"?\n\nThis will DROP the database table and DELETE ALL DATA stored in it. The table definition will be preserved and you can reactivate it later.`)) {
+      return;
+    }
+
     try {
       setActionLoading((prev) => ({ ...prev, [table.id]: 'deactivate' }));
       await externalTablesApi.deactivate(table.id);
@@ -196,6 +203,7 @@ function ExternalTablesPage() {
     setNewColumnName('');
     setNewColumnType('text');
     setNewColumnNullable(true);
+    setNewColumnDefault('');
   };
 
   const handleAddColumn = async () => {
@@ -208,29 +216,36 @@ function ExternalTablesPage() {
         name: newColumnName,
         data_type: newColumnType,
         is_nullable: newColumnNullable,
+        default_value: newColumnDefault || null,
       });
       setAddColumnTable(null);
       fetchData();
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to add column');
+      setError(err.response?.data?.[0] || err.response?.data?.detail || 'Failed to add column');
     } finally {
       setIsAddingColumn(false);
     }
   };
 
   const handleDeleteColumn = async (column: ExternalTableColumn) => {
-    if (!confirm(`Delete column "${column.name}"?`)) return;
+    // Find the table for this column
+    const table = tables.find(t => t.columns.some(c => c.id === column.id));
+    const warningMsg = table?.is_active
+      ? `Delete column "${column.name}"?\n\nThis will permanently remove this column and all its data from the database using ALTER TABLE.`
+      : `Delete column "${column.name}"?`;
+
+    if (!confirm(warningMsg)) return;
 
     try {
       await externalTableColumnsApi.delete(column.id);
       fetchData();
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to delete column. Table must be deactivated first.');
+      setError(err.response?.data?.[0] || err.response?.data?.detail || 'Failed to delete column');
     }
   };
 
   const addNewColumn = () => {
-    setNewColumns([...newColumns, { name: '', data_type: 'text', is_nullable: true }]);
+    setNewColumns([...newColumns, { name: '', data_type: 'text', is_nullable: true, default_value: '' }]);
   };
 
   const removeNewColumn = (index: number) => {
@@ -327,40 +342,38 @@ function ExternalTablesPage() {
                       <div
                         key={col.id}
                         className="flex items-center gap-1 px-2 py-1 bg-blue-50 rounded text-sm"
+                        title={col.default_value ? `Default: ${col.default_value}` : undefined}
                       >
                         <span className="font-medium text-blue-800">{col.name}</span>
                         <span className="text-blue-600">({col.data_type})</span>
-                        {!table.is_active && (
-                          <button
-                            onClick={() => handleDeleteColumn(col)}
-                            className="ml-1 text-red-500 hover:text-red-700"
-                            title="Delete column"
-                          >
-                            &times;
-                          </button>
+                        {col.default_value && (
+                          <span className="text-blue-500 text-xs">= {col.default_value}</span>
                         )}
+                        <button
+                          onClick={() => handleDeleteColumn(col)}
+                          className="ml-1 text-red-500 hover:text-red-700"
+                          title="Delete column"
+                        >
+                          &times;
+                        </button>
                       </div>
                     ))}
-                    {!table.is_active && (
-                      <button
-                        onClick={() => handleShowAddColumn(table)}
-                        className="px-2 py-1 bg-gray-100 rounded text-sm text-gray-600 hover:bg-gray-200"
-                      >
-                        + Add Column
-                      </button>
-                    )}
+                    <button
+                      onClick={() => handleShowAddColumn(table)}
+                      className="px-2 py-1 bg-gray-100 rounded text-sm text-gray-600 hover:bg-gray-200"
+                    >
+                      + Add Column
+                    </button>
                   </div>
                 ) : (
                   <p className="text-sm text-gray-500">
                     No columns defined.{' '}
-                    {!table.is_active && (
-                      <button
-                        onClick={() => handleShowAddColumn(table)}
-                        className="text-purple-600 hover:underline"
-                      >
-                        Add columns
-                      </button>
-                    )}
+                    <button
+                      onClick={() => handleShowAddColumn(table)}
+                      className="text-purple-600 hover:underline"
+                    >
+                      Add columns
+                    </button>
                   </p>
                 )}
               </div>
@@ -494,41 +507,53 @@ function ExternalTablesPage() {
                 {newColumns.length === 0 ? (
                   <p className="text-sm text-gray-500 italic">No columns added yet</p>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     {newColumns.map((col, idx) => (
-                      <div key={idx} className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          value={col.name}
-                          onChange={(e) => updateNewColumn(idx, 'name', e.target.value)}
-                          placeholder="Column name"
-                          className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm"
-                        />
-                        <select
-                          value={col.data_type}
-                          onChange={(e) => updateNewColumn(idx, 'data_type', e.target.value)}
-                          className="border border-gray-300 rounded px-2 py-1 text-sm"
-                        >
-                          {availableTypes.map((t) => (
-                            <option key={t.value} value={t.value}>
-                              {t.label}
-                            </option>
-                          ))}
-                        </select>
-                        <label className="flex items-center gap-1 text-sm">
+                      <div key={idx} className="p-3 bg-gray-50 rounded-lg space-y-2">
+                        <div className="flex items-center gap-2">
                           <input
-                            type="checkbox"
-                            checked={col.is_nullable}
-                            onChange={(e) => updateNewColumn(idx, 'is_nullable', e.target.checked)}
+                            type="text"
+                            value={col.name}
+                            onChange={(e) => updateNewColumn(idx, 'name', e.target.value)}
+                            placeholder="Column name"
+                            className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm"
                           />
-                          Nullable
-                        </label>
-                        <button
-                          onClick={() => removeNewColumn(idx)}
-                          className="text-red-500 hover:text-red-700"
-                        >
-                          &times;
-                        </button>
+                          <select
+                            value={col.data_type}
+                            onChange={(e) => updateNewColumn(idx, 'data_type', e.target.value)}
+                            className="border border-gray-300 rounded px-2 py-1 text-sm"
+                          >
+                            {availableTypes.map((t) => (
+                              <option key={t.value} value={t.value}>
+                                {t.label}
+                              </option>
+                            ))}
+                          </select>
+                          <label className="flex items-center gap-1 text-sm whitespace-nowrap">
+                            <input
+                              type="checkbox"
+                              checked={col.is_nullable}
+                              onChange={(e) => updateNewColumn(idx, 'is_nullable', e.target.checked)}
+                            />
+                            Nullable
+                          </label>
+                          <button
+                            onClick={() => removeNewColumn(idx)}
+                            className="text-red-500 hover:text-red-700"
+                          >
+                            &times;
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-gray-500 whitespace-nowrap">Default:</span>
+                          <input
+                            type="text"
+                            value={col.default_value}
+                            onChange={(e) => updateNewColumn(idx, 'default_value', e.target.value)}
+                            placeholder={col.data_type === 'boolean' ? 'true / false' : col.data_type === 'integer' ? '0' : 'No default'}
+                            className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm"
+                          />
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -619,6 +644,12 @@ function ExternalTablesPage() {
               </button>
             </div>
 
+            {addColumnTable.is_active && (
+              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
+                This table is active. The column will be added immediately using ALTER TABLE.
+              </div>
+            )}
+
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -648,6 +679,22 @@ function ExternalTablesPage() {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Default Value
+                </label>
+                <input
+                  type="text"
+                  value={newColumnDefault}
+                  onChange={(e) => setNewColumnDefault(e.target.value)}
+                  placeholder={newColumnType === 'boolean' ? 'true / false' : newColumnType === 'integer' ? '0' : ''}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Leave empty for no default value
+                </p>
               </div>
 
               <div>

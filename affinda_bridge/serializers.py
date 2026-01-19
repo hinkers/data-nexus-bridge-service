@@ -420,6 +420,7 @@ class ExternalTableColumnSerializer(serializers.ModelSerializer):
             "sql_column_name",
             "data_type",
             "is_nullable",
+            "default_value",
             "display_order",
         ]
         read_only_fields = ["id", "sql_column_name"]
@@ -430,7 +431,7 @@ class ExternalTableColumnCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ExternalTableColumn
-        fields = ["name", "data_type", "is_nullable", "display_order"]
+        fields = ["name", "data_type", "is_nullable", "default_value", "display_order"]
 
 
 class ExternalTableSerializer(serializers.ModelSerializer):

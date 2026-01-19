@@ -753,14 +753,37 @@ class ExternalTableColumnViewSet(viewsets.ModelViewSet):
     serializer_class = ExternalTableColumnSerializer
     filterset_fields = ["external_table", "data_type"]
 
-    def perform_destroy(self, instance):
-        """Prevent column deletion if table is active."""
-        if instance.external_table.is_active:
-            from rest_framework.exceptions import ValidationError
+    def perform_create(self, serializer):
+        """Create column and add to database if table is active."""
+        column = serializer.save()
 
-            raise ValidationError(
-                "Cannot delete column from active table. Deactivate the table first."
-            )
+        # If the table is active, add the column via ALTER TABLE
+        if column.external_table.is_active:
+            from affinda_bridge.services import ExternalTableBuilder
+
+            builder = ExternalTableBuilder(column.external_table)
+            success, msg = builder.add_column(column)
+
+            if not success:
+                # Rollback the column creation
+                column.delete()
+                from rest_framework.exceptions import ValidationError
+
+                raise ValidationError(f"Failed to add column to database: {msg}")
+
+    def perform_destroy(self, instance):
+        """Delete column and drop from database if table is active."""
+        if instance.external_table.is_active:
+            from affinda_bridge.services import ExternalTableBuilder
+
+            builder = ExternalTableBuilder(instance.external_table)
+            success, msg = builder.drop_column(instance)
+
+            if not success:
+                from rest_framework.exceptions import ValidationError
+
+                raise ValidationError(f"Failed to drop column from database: {msg}")
+
         instance.delete()
 
 
