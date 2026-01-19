@@ -759,12 +759,21 @@ class SyncSchedule(models.Model):
         """Calculate and set the next run time based on cron expression."""
         try:
             from croniter import croniter
+            from datetime import datetime
 
             base_time = from_time or timezone.now()
             cron = croniter(self.cron_expression, base_time)
-            self.next_run_at = cron.get_next(timezone.datetime)
+            next_run = cron.get_next(datetime)
+            # Ensure the datetime is timezone-aware
+            if timezone.is_naive(next_run):
+                next_run = timezone.make_aware(next_run)
+            self.next_run_at = next_run
             return self.next_run_at
-        except Exception:
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to calculate next_run_at for schedule {self.pk}: {e}")
+            self.next_run_at = None
             return None
 
     def should_run_now(self) -> bool:
@@ -776,9 +785,12 @@ class SyncSchedule(models.Model):
         return timezone.now() >= self.next_run_at
 
     def save(self, *args, **kwargs):
-        # Calculate next run time on save if not set
-        if self.enabled and not self.next_run_at:
+        # Always recalculate next run time when enabled
+        if self.enabled:
             self.calculate_next_run()
+        else:
+            # Clear next_run_at when disabled
+            self.next_run_at = None
         super().save(*args, **kwargs)
 
 

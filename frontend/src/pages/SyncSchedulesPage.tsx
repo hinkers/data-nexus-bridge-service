@@ -17,7 +17,7 @@ function SyncSchedulesPage() {
     sync_type: 'selective' as 'full_collection' | 'selective' | 'data_source',
     collection: '' as string | number,
     plugin_instance: '' as string | number,
-    cron_expression: '0 2 * * *',
+    cron_expression: '*/15 6-19 * * 1-5',
     enabled: true,
   });
 
@@ -193,7 +193,7 @@ function SyncSchedulesPage() {
       sync_type: 'selective',
       collection: '',
       plugin_instance: '',
-      cron_expression: '0 2 * * *',
+      cron_expression: '*/15 6-19 * * 1-5',
       enabled: true,
     });
   };

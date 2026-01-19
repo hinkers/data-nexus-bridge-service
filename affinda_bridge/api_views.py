@@ -836,10 +836,11 @@ class SyncScheduleViewSet(viewsets.ModelViewSet):
         """Get available cron expression presets."""
         return Response({
             "presets": [
+                {"label": "Every 15 mins on Workdays (Recommended)", "value": "*/15 6-19 * * 1-5"},
                 {"label": "Every Hour", "value": "0 * * * *"},
                 {"label": "Every 6 Hours", "value": "0 */6 * * *"},
                 {"label": "Daily at Midnight", "value": "0 0 * * *"},
-                {"label": "Daily at 2am (Recommended)", "value": "0 2 * * *"},
+                {"label": "Daily at 2am", "value": "0 2 * * *"},
                 {"label": "Weekly on Sunday", "value": "0 0 * * 0"},
             ],
             "sync_types": [

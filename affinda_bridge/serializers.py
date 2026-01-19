@@ -635,17 +635,15 @@ class SyncScheduleSerializer(serializers.ModelSerializer):
         return data
 
     def create(self, validated_data):
+        # The model's save() method handles calculate_next_run automatically
         schedule = super().create(validated_data)
-        # Calculate next run time
-        schedule.calculate_next_run()
-        schedule.save(update_fields=["next_run_at"])
+        # Refresh from db to get the calculated next_run_at
+        schedule.refresh_from_db()
         return schedule
 
     def update(self, instance, validated_data):
+        # The model's save() method handles calculate_next_run automatically
         schedule = super().update(instance, validated_data)
-        # Recalculate next run time if cron changed or enabled changed
-        if "cron_expression" in validated_data or "enabled" in validated_data:
-            if schedule.enabled:
-                schedule.calculate_next_run()
-                schedule.save(update_fields=["next_run_at"])
+        # Refresh from db to get the calculated next_run_at
+        schedule.refresh_from_db()
         return schedule

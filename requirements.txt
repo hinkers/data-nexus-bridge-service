@@ -26,6 +26,7 @@ azure-identity>=1.25
 # Utilities
 packaging>=25.0
 pydantic>=2.12
+croniter>=6.0  # For cron expression parsing in sync schedules
 
 # Testing (development only)
 pytest>=9.0
