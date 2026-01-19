@@ -356,6 +356,11 @@ class CollectionView(models.Model):
         blank=True,
         help_text="List of ExternalTable IDs to include in the view",
     )
+    include_external_table_columns = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Mapping of ExternalTable IDs to selected column IDs. Empty list = all columns.",
+    )
     last_sql = models.TextField(
         blank=True,
         help_text="Last SQL statement used to create the view",

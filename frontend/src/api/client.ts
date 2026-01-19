@@ -515,12 +515,20 @@ export interface DocumentColumnOption {
   label: string;
 }
 
+export interface ExternalTableColumnSummary {
+  id: number;
+  name: string;
+  sql_column_name: string;
+  data_type: string;
+}
+
 export interface ExternalTableSummary {
   id: number;
   name: string;
   sql_table_name: string;
   is_active: boolean;
   column_count: number;
+  columns: ExternalTableColumnSummary[];
 }
 
 export interface CollectionView {
@@ -534,6 +542,7 @@ export interface CollectionView {
   include_fields: number[];
   include_document_columns: string[];
   include_external_tables: number[];
+  include_external_table_columns: Record<string, number[]>;
   last_refreshed_at: string | null;
   error_message: string;
   created_at: string;
@@ -577,6 +586,7 @@ export const collectionViewsApi = {
     include_fields?: number[];
     include_document_columns?: string[];
     include_external_tables?: number[];
+    include_external_table_columns?: Record<string, number[]>;
   }) => apiClient.post<CollectionView>('/api/collection-views/', data),
   update: (id: number, data: {
     name?: string;
@@ -584,6 +594,7 @@ export const collectionViewsApi = {
     include_fields?: number[];
     include_document_columns?: string[];
     include_external_tables?: number[];
+    include_external_table_columns?: Record<string, number[]>;
   }) => apiClient.patch<CollectionView>(`/api/collection-views/${id}/`, data),
   delete: (id: number) => apiClient.delete(`/api/collection-views/${id}/`),
   activate: (id: number) =>
@@ -592,8 +603,6 @@ export const collectionViewsApi = {
     apiClient.post<CollectionViewActionResult>(`/api/collection-views/${id}/deactivate/`),
   refresh: (id: number) =>
     apiClient.post<CollectionViewActionResult>(`/api/collection-views/${id}/refresh/`),
-  syncData: (id: number) =>
-    apiClient.post<CollectionViewActionResult>(`/api/collection-views/${id}/sync-data/`),
   preview: (id: number) =>
     apiClient.get<CollectionViewPreview>(`/api/collection-views/${id}/preview/`),
 };

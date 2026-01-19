@@ -47,6 +47,8 @@ function CollectionViewsPage() {
   const [extTablesView, setExtTablesView] = useState<CollectionView | null>(null);
   const [availableExtTables, setAvailableExtTables] = useState<ExternalTableSummary[]>([]);
   const [selectedExtTables, setSelectedExtTables] = useState<number[]>([]);
+  const [selectedExtTableColumns, setSelectedExtTableColumns] = useState<Record<string, number[]>>({});
+  const [expandedExtTables, setExpandedExtTables] = useState<Set<number>>(new Set());
   const [isSavingExtTables, setIsSavingExtTables] = useState(false);
 
   // Action states
@@ -170,26 +172,6 @@ function CollectionViewsPage() {
     }
   };
 
-  const handleSyncData = async (view: CollectionView) => {
-    try {
-      setActionLoading((prev) => ({ ...prev, [view.id]: 'sync' }));
-      const res = await collectionViewsApi.syncData(view.id);
-      if (res.data.success) {
-        alert(`Synced ${res.data.synced_count} field values`);
-      } else {
-        setError(res.data.message);
-      }
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to sync data');
-    } finally {
-      setActionLoading((prev) => {
-        const next = { ...prev };
-        delete next[view.id];
-        return next;
-      });
-    }
-  };
-
   const handleShowPreview = async (view: CollectionView) => {
     setPreviewView(view);
     setIsLoadingPreview(true);
@@ -276,6 +258,9 @@ function CollectionViewsPage() {
     setExtTablesView(view);
     setAvailableExtTables(view.available_external_tables || []);
     setSelectedExtTables(view.include_external_tables || []);
+    setSelectedExtTableColumns(view.include_external_table_columns || {});
+    // Auto-expand tables that are selected
+    setExpandedExtTables(new Set(view.include_external_tables || []));
   };
 
   const handleSaveExtTables = async () => {
@@ -283,8 +268,17 @@ function CollectionViewsPage() {
 
     try {
       setIsSavingExtTables(true);
+      // Only include column selections for selected tables
+      const filteredColumnSelections: Record<string, number[]> = {};
+      for (const tableId of selectedExtTables) {
+        const tableIdStr = tableId.toString();
+        if (selectedExtTableColumns[tableIdStr]?.length > 0) {
+          filteredColumnSelections[tableIdStr] = selectedExtTableColumns[tableIdStr];
+        }
+      }
       await collectionViewsApi.update(extTablesView.id, {
         include_external_tables: selectedExtTables,
+        include_external_table_columns: filteredColumnSelections,
       });
       setExtTablesView(null);
       fetchData();
@@ -296,9 +290,69 @@ function CollectionViewsPage() {
   };
 
   const toggleExtTable = (tableId: number) => {
-    setSelectedExtTables((prev) =>
-      prev.includes(tableId) ? prev.filter((id) => id !== tableId) : [...prev, tableId]
-    );
+    setSelectedExtTables((prev) => {
+      const isSelected = prev.includes(tableId);
+      if (isSelected) {
+        // When deselecting, also collapse the table
+        setExpandedExtTables((exp) => {
+          const next = new Set(exp);
+          next.delete(tableId);
+          return next;
+        });
+        return prev.filter((id) => id !== tableId);
+      } else {
+        // When selecting, also expand the table
+        setExpandedExtTables((exp) => new Set(exp).add(tableId));
+        return [...prev, tableId];
+      }
+    });
+  };
+
+  const toggleExtTableExpand = (tableId: number) => {
+    setExpandedExtTables((prev) => {
+      const next = new Set(prev);
+      if (next.has(tableId)) {
+        next.delete(tableId);
+      } else {
+        next.add(tableId);
+      }
+      return next;
+    });
+  };
+
+  const toggleExtTableColumn = (tableId: number, columnId: number) => {
+    const tableIdStr = tableId.toString();
+    setSelectedExtTableColumns((prev) => {
+      const currentCols = prev[tableIdStr] || [];
+      if (currentCols.includes(columnId)) {
+        // Remove column
+        const newCols = currentCols.filter((id) => id !== columnId);
+        if (newCols.length === 0) {
+          // Remove the key entirely if no columns selected (means all columns)
+          const { [tableIdStr]: _, ...rest } = prev;
+          return rest;
+        }
+        return { ...prev, [tableIdStr]: newCols };
+      } else {
+        // Add column
+        return { ...prev, [tableIdStr]: [...currentCols, columnId] };
+      }
+    });
+  };
+
+  const selectAllExtTableColumns = (tableId: number, allColumnIds: number[]) => {
+    const tableIdStr = tableId.toString();
+    setSelectedExtTableColumns((prev) => {
+      const currentCols = prev[tableIdStr] || [];
+      if (currentCols.length === allColumnIds.length) {
+        // All selected, so clear to mean "all columns"
+        const { [tableIdStr]: _, ...rest } = prev;
+        return rest;
+      } else {
+        // Select all specific columns
+        return { ...prev, [tableIdStr]: allColumnIds };
+      }
+    });
   };
 
   if (isLoading) {
@@ -416,14 +470,6 @@ function CollectionViewsPage() {
                     title="Configure External Tables"
                   >
                     Ext Tables
-                  </button>
-                  <button
-                    onClick={() => handleSyncData(view)}
-                    disabled={!!actionLoading[view.id]}
-                    className="px-3 py-1.5 text-sm bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors disabled:opacity-50"
-                    title="Sync field values from documents"
-                  >
-                    {actionLoading[view.id] === 'sync' ? 'Syncing...' : 'Sync Data'}
                   </button>
                   {view.is_active ? (
                     <>
@@ -737,7 +783,7 @@ function CollectionViewsPage() {
       {/* External Tables Modal */}
       {extTablesView && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-6 w-full max-w-lg mx-4 max-h-[90vh] overflow-auto">
+          <div className="bg-white rounded-xl p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-auto">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-semibold">External Tables: {extTablesView.name}</h2>
               <button
@@ -748,7 +794,7 @@ function CollectionViewsPage() {
               </button>
             </div>
             <p className="text-sm text-gray-600 mb-4">
-              Select which external tables to join to this view. Only active tables can be included.
+              Select which external tables and columns to join to this view. Expand a table to select specific columns (leave unchecked for all columns).
             </p>
             {availableExtTables.length === 0 ? (
               <div className="text-center py-8">
@@ -761,42 +807,118 @@ function CollectionViewsPage() {
                 </a>
               </div>
             ) : (
-              <div className="space-y-2 max-h-96 overflow-y-auto">
-                {availableExtTables.map((table) => (
-                  <label
-                    key={table.id}
-                    className={`flex items-center gap-3 p-3 rounded cursor-pointer ${
-                      table.is_active ? 'hover:bg-gray-50' : 'opacity-50 cursor-not-allowed'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedExtTables.includes(table.id)}
-                      onChange={() => table.is_active && toggleExtTable(table.id)}
-                      disabled={!table.is_active}
-                      className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
-                    />
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-gray-900">{table.name}</span>
-                        <span
-                          className={`px-1.5 py-0.5 text-xs rounded ${
-                            table.is_active
-                              ? 'bg-green-100 text-green-700'
-                              : 'bg-gray-100 text-gray-500'
-                          }`}
+              <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+                {availableExtTables.map((table) => {
+                  const isSelected = selectedExtTables.includes(table.id);
+                  const isExpanded = expandedExtTables.has(table.id);
+                  const tableIdStr = table.id.toString();
+                  const selectedCols = selectedExtTableColumns[tableIdStr] || [];
+                  const allColumnIds = table.columns.map((c) => c.id);
+
+                  return (
+                    <div
+                      key={table.id}
+                      className={`border rounded-lg ${
+                        isSelected ? 'border-purple-300 bg-purple-50/50' : 'border-gray-200'
+                      } ${!table.is_active ? 'opacity-50' : ''}`}
+                    >
+                      {/* Table header row */}
+                      <div className="flex items-center gap-3 p-3">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => table.is_active && toggleExtTable(table.id)}
+                          disabled={!table.is_active}
+                          className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                        />
+                        <button
+                          onClick={() => table.is_active && toggleExtTableExpand(table.id)}
+                          disabled={!table.is_active}
+                          className="text-gray-400 hover:text-gray-600 disabled:cursor-not-allowed"
                         >
-                          {table.is_active ? 'Active' : 'Inactive'}
-                        </span>
+                          <svg
+                            className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
+                        </button>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-gray-900">{table.name}</span>
+                            <span
+                              className={`px-1.5 py-0.5 text-xs rounded ${
+                                table.is_active
+                                  ? 'bg-green-100 text-green-700'
+                                  : 'bg-gray-100 text-gray-500'
+                              }`}
+                            >
+                              {table.is_active ? 'Active' : 'Inactive'}
+                            </span>
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            <span className="font-mono">{table.sql_table_name}</span>
+                            <span className="mx-1">·</span>
+                            {isSelected ? (
+                              <span>
+                                {selectedCols.length === 0
+                                  ? `All ${table.column_count} columns`
+                                  : `${selectedCols.length} of ${table.column_count} columns`}
+                              </span>
+                            ) : (
+                              <span>{table.column_count} column(s)</span>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                      <div className="text-xs text-gray-500">
-                        <span className="font-mono">{table.sql_table_name}</span>
-                        <span className="mx-1">·</span>
-                        <span>{table.column_count} column(s)</span>
-                      </div>
+
+                      {/* Expanded columns section */}
+                      {isExpanded && table.columns.length > 0 && (
+                        <div className="border-t border-gray-200 bg-white rounded-b-lg">
+                          <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+                            <span className="text-xs font-medium text-gray-600">Columns</span>
+                            <button
+                              onClick={() => selectAllExtTableColumns(table.id, allColumnIds)}
+                              className="text-xs text-purple-600 hover:text-purple-700"
+                            >
+                              {selectedCols.length === allColumnIds.length ? 'Clear selection' : 'Select all'}
+                            </button>
+                          </div>
+                          <div className="p-2 grid grid-cols-2 gap-1">
+                            {table.columns.map((column) => (
+                              <label
+                                key={column.id}
+                                className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={selectedCols.length === 0 || selectedCols.includes(column.id)}
+                                  onChange={() => toggleExtTableColumn(table.id, column.id)}
+                                  className="w-3.5 h-3.5 text-purple-600 rounded focus:ring-purple-500"
+                                />
+                                <div className="min-w-0">
+                                  <div className="text-sm font-medium text-gray-800 truncate">{column.name}</div>
+                                  <div className="text-xs text-gray-500 truncate">
+                                    <span className="font-mono">{column.sql_column_name}</span>
+                                    <span className="mx-1">·</span>
+                                    <span>{column.data_type}</span>
+                                  </div>
+                                </div>
+                              </label>
+                            ))}
+                          </div>
+                          {selectedCols.length === 0 && (
+                            <div className="px-3 py-2 bg-blue-50 border-t border-blue-100 text-xs text-blue-700">
+                              All columns will be included. Select specific columns to limit the view.
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
-                  </label>
-                ))}
+                  );
+                })}
               </div>
             )}
             <div className="flex justify-between items-center mt-6">

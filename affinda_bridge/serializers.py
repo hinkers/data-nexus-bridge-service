@@ -329,6 +329,7 @@ class CollectionViewSerializer(serializers.ModelSerializer):
             "include_fields",
             "include_document_columns",
             "include_external_tables",
+            "include_external_table_columns",
             "last_refreshed_at",
             "error_message",
             "created_at",
@@ -362,7 +363,7 @@ class CollectionViewSerializer(serializers.ModelSerializer):
         ]
 
     def get_available_external_tables(self, obj: CollectionView) -> list[dict]:
-        """Get external tables available for this collection."""
+        """Get external tables available for this collection with their columns."""
         return [
             {
                 "id": et.id,
@@ -370,8 +371,19 @@ class CollectionViewSerializer(serializers.ModelSerializer):
                 "sql_table_name": et.sql_table_name,
                 "is_active": et.is_active,
                 "column_count": et.columns.count(),
+                "columns": [
+                    {
+                        "id": col.id,
+                        "name": col.name,
+                        "sql_column_name": col.sql_column_name,
+                        "data_type": col.data_type,
+                    }
+                    for col in et.columns.order_by("display_order", "name")
+                ],
             }
-            for et in ExternalTable.objects.filter(collection=obj.collection)
+            for et in ExternalTable.objects.filter(
+                collection=obj.collection
+            ).prefetch_related("columns")
         ]
 
 
@@ -387,6 +399,7 @@ class CollectionViewCreateSerializer(serializers.ModelSerializer):
             "include_fields",
             "include_document_columns",
             "include_external_tables",
+            "include_external_table_columns",
         ]
 
     def validate_name(self, value):

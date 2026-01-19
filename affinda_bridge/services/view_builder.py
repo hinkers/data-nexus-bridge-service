@@ -125,11 +125,23 @@ class SQLViewBuilder:
         # Build external table columns
         external_columns = []
         external_group_by = []
+        # Get the column selection mapping (table_id -> list of column_ids)
+        column_selection = self.collection_view.include_external_table_columns or {}
+
         for idx, ext_table in enumerate(external_tables):
             alias = f"ext{idx}"
             # Create a prefix from the table name for uniqueness
             table_prefix = self._sanitize_column_name(ext_table.name)
+
+            # Get selected columns for this table (empty list or missing = all columns)
+            table_id_str = str(ext_table.id)
+            selected_column_ids = column_selection.get(table_id_str, [])
+
             for column in ext_table.columns.all():
+                # Skip if specific columns are selected and this one isn't in the list
+                if selected_column_ids and column.id not in selected_column_ids:
+                    continue
+
                 col_alias = f"{table_prefix}_{column.sql_column_name}"
                 quoted_col_alias = self._quote_identifier(col_alias)
                 external_columns.append(

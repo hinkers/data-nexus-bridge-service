@@ -40,7 +40,6 @@ from affinda_bridge.serializers import (
 from affinda_bridge.services import (
     ExternalTableBuilder,
     SQLViewBuilder,
-    sync_collection_field_values,
     sync_document_field_values,
 )
 
@@ -558,26 +557,6 @@ class CollectionViewViewSet(viewsets.ModelViewSet):
             },
             status=status.HTTP_200_OK if success else status.HTTP_400_BAD_REQUEST,
         )
-
-    @action(detail=True, methods=["post"], url_path="sync-data")
-    def sync_data(self, request, pk=None):
-        """Sync DocumentFieldValues for the collection."""
-        collection_view = self.get_object()
-
-        try:
-            synced_count = sync_collection_field_values(collection_view.collection.id)
-            return Response(
-                {
-                    "success": True,
-                    "synced_count": synced_count,
-                    "message": f"Synced {synced_count} field values",
-                }
-            )
-        except Exception as e:
-            return Response(
-                {"success": False, "message": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
 
     @action(detail=True, methods=["get"])
     def preview(self, request, pk=None):
