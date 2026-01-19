@@ -283,6 +283,46 @@ export interface Plugin {
     postprocessors: number;
     datasources: number;
   };
+  // Source-related fields
+  source: number | null;
+  source_name: string | null;
+  source_slug: string | null;
+  source_path: string;
+  installed_version: string;
+  available_version: string;
+  update_available: boolean;
+  installed_from_url: string;
+}
+
+// Plugin Source types
+export interface PluginSource {
+  id: number;
+  slug: string;
+  name: string;
+  url: string;
+  source_type: 'builtin' | 'user';
+  enabled: boolean;
+  is_multi_plugin: boolean;
+  manifest_data: Record<string, any>;
+  last_checked_at: string | null;
+  last_fetched_at: string | null;
+  latest_version: string;
+  error_message: string;
+  created_at: string;
+  updated_at: string;
+  plugins_count: number;
+  available_plugins: SourceAvailablePlugin[];
+}
+
+export interface SourceAvailablePlugin {
+  slug: string;
+  name: string;
+  version: string;
+  description: string;
+  path?: string;
+  entry_point?: string;
+  installed: boolean;
+  installed_version?: string;
 }
 
 export interface PluginComponent {
@@ -393,6 +433,59 @@ export const pluginsApi = {
     apiClient.post<{ dependencies: DependencyStatus[]; missing: string[]; satisfied: boolean }>(
       '/api/plugins/check-dependencies/',
       { slug }
+    ),
+  // Update-related endpoints
+  checkUpdates: () =>
+    apiClient.post<{ updates_available: number; plugins: Array<{ slug: string; name: string; current_version: string; available_version: string }> }>(
+      '/api/plugins/check-updates/'
+    ),
+  checkUpdate: (slug: string) =>
+    apiClient.post<{ update_available: boolean; current_version: string; available_version: string }>(
+      `/api/plugins/${slug}/check-update/`
+    ),
+  update: (slug: string) =>
+    apiClient.post<{ success: boolean; message: string; version: string }>(
+      `/api/plugins/${slug}/apply-update/`
+    ),
+};
+
+// Plugin Source API functions
+export interface PluginSourceRefreshResult {
+  success: boolean;
+  is_multi_plugin: boolean;
+  plugins_count: number;
+  available_plugins: SourceAvailablePlugin[];
+}
+
+export interface PluginSourceInstallResult {
+  success: boolean;
+  plugin: {
+    id: number;
+    slug: string;
+    name: string;
+    version: string;
+  };
+  message: string;
+}
+
+export const pluginSourcesApi = {
+  list: (params?: { type?: 'builtin' | 'user'; enabled?: boolean }) =>
+    apiClient.get<PaginatedResponse<PluginSource>>('/api/plugin-sources/', { params }),
+  get: (slug: string) => apiClient.get<PluginSource>(`/api/plugin-sources/${slug}/`),
+  add: (url: string, name?: string) =>
+    apiClient.post<PluginSource>('/api/plugin-sources/', { url, name }),
+  delete: (slug: string) => apiClient.delete(`/api/plugin-sources/${slug}/`),
+  toggle: (slug: string) =>
+    apiClient.post<{ enabled: boolean }>(`/api/plugin-sources/${slug}/toggle/`),
+  refresh: (slug: string) =>
+    apiClient.post<PluginSourceRefreshResult>(`/api/plugin-sources/${slug}/refresh/`),
+  available: (slug: string) =>
+    apiClient.get<{ source: string; plugins: SourceAvailablePlugin[] }>(
+      `/api/plugin-sources/${slug}/available/`
+    ),
+  installPlugin: (sourceSlug: string, pluginSlug: string) =>
+    apiClient.post<PluginSourceInstallResult>(
+      `/api/plugin-sources/${sourceSlug}/install/${pluginSlug}/`
     ),
 };
 

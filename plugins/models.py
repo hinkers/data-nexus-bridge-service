@@ -2,6 +2,81 @@ from django.db import models
 from django.utils import timezone
 
 
+class PluginSource(models.Model):
+    """
+    A URL source for discovering and installing plugins.
+    Can point to either a single-plugin repo or a multi-plugin repo with a manifest.
+    """
+    SOURCE_TYPE_BUILTIN = 'builtin'
+    SOURCE_TYPE_USER = 'user'
+    SOURCE_TYPE_CHOICES = [
+        (SOURCE_TYPE_BUILTIN, 'Built-in'),
+        (SOURCE_TYPE_USER, 'User-added'),
+    ]
+
+    slug = models.SlugField(
+        max_length=100,
+        unique=True,
+        help_text="Unique identifier for this source"
+    )
+    name = models.CharField(max_length=200, help_text="Display name for this source")
+    url = models.URLField(
+        max_length=500,
+        help_text="Git repository URL or direct download URL"
+    )
+    source_type = models.CharField(
+        max_length=20,
+        choices=SOURCE_TYPE_CHOICES,
+        default=SOURCE_TYPE_USER
+    )
+    enabled = models.BooleanField(default=True)
+
+    # Manifest info (populated after fetching)
+    is_multi_plugin = models.BooleanField(
+        default=False,
+        help_text="Whether this source contains multiple plugins"
+    )
+    manifest_data = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Cached manifest data from the source"
+    )
+
+    # Tracking
+    last_checked_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Last time we checked for updates"
+    )
+    last_fetched_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Last time we successfully fetched manifest"
+    )
+    latest_version = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text="Latest version from manifest or git tag"
+    )
+    error_message = models.TextField(
+        blank=True,
+        help_text="Last error message if fetch failed"
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['source_type', 'name']
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.get_source_type_display()})"
+
+    @property
+    def is_builtin(self) -> bool:
+        return self.source_type == self.SOURCE_TYPE_BUILTIN
+
+
 class Plugin(models.Model):
     """
     Represents an installed plugin package.
@@ -34,6 +109,40 @@ class Plugin(models.Model):
         default=dict,
         blank=True,
         help_text="Plugin-level configuration values"
+    )
+
+    # Source tracking (for URL-based plugins)
+    source = models.ForeignKey(
+        'PluginSource',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='plugins',
+        help_text="The source this plugin was installed from"
+    )
+    source_path = models.CharField(
+        max_length=200,
+        blank=True,
+        help_text="Path within the source repo (for multi-plugin repos)"
+    )
+    installed_version = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text="Version of the plugin when installed"
+    )
+    available_version = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text="Latest available version from source"
+    )
+    update_available = models.BooleanField(
+        default=False,
+        help_text="Whether a newer version is available"
+    )
+    installed_from_url = models.URLField(
+        max_length=500,
+        blank=True,
+        help_text="Original URL the plugin was installed from"
     )
 
     class Meta:

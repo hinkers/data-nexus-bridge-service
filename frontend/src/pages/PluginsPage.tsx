@@ -4,10 +4,12 @@ import {
   pluginsApi,
   pluginComponentsApi,
   pluginInstancesApi,
+  pluginSourcesApi,
   type Plugin,
   type AvailablePlugin,
   type PluginComponent,
   type PluginInstance,
+  type PluginSource,
 } from '../api/client';
 
 type TabType = 'installed' | 'available' | 'instances';
@@ -20,6 +22,9 @@ function PluginsPage() {
   const [showInstallModal, setShowInstallModal] = useState(false);
   const [pluginToInstall, setPluginToInstall] = useState<AvailablePlugin | null>(null);
   const [showEditPluginConfig, setShowEditPluginConfig] = useState(false);
+  const [showSourcesModal, setShowSourcesModal] = useState(false);
+  const [showAddSource, setShowAddSource] = useState(false);
+  const [selectedSource, setSelectedSource] = useState<PluginSource | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const queryClient = useQueryClient();
 
@@ -54,6 +59,15 @@ function PluginsPage() {
       const response = await pluginInstancesApi.list();
       return response.data.results;
     },
+  });
+
+  const { data: sources, isLoading: loadingSources } = useQuery({
+    queryKey: ['plugin-sources'],
+    queryFn: async () => {
+      const response = await pluginSourcesApi.list();
+      return response.data.results;
+    },
+    enabled: showSourcesModal,
   });
 
   // Mutations
@@ -135,6 +149,64 @@ function PluginsPage() {
       queryClient.invalidateQueries({ queryKey: ['plugins', 'available'] });
     },
   });
+
+  const checkUpdatesMutation = useMutation({
+    mutationFn: () => pluginsApi.checkUpdates(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['plugins'] });
+    },
+  });
+
+  const updatePluginMutation = useMutation({
+    mutationFn: (slug: string) => pluginsApi.update(slug),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['plugins'] });
+    },
+  });
+
+  // Plugin Sources Mutations
+  const addSourceMutation = useMutation({
+    mutationFn: ({ url, name }: { url: string; name?: string }) =>
+      pluginSourcesApi.add(url, name),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['plugin-sources'] });
+      setShowAddSource(false);
+    },
+  });
+
+  const deleteSourceMutation = useMutation({
+    mutationFn: (slug: string) => pluginSourcesApi.delete(slug),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['plugin-sources'] });
+      setSelectedSource(null);
+    },
+  });
+
+  const toggleSourceMutation = useMutation({
+    mutationFn: (slug: string) => pluginSourcesApi.toggle(slug),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['plugin-sources'] });
+    },
+  });
+
+  const refreshSourceMutation = useMutation({
+    mutationFn: (slug: string) => pluginSourcesApi.refresh(slug),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['plugin-sources'] });
+    },
+  });
+
+  const installFromSourceMutation = useMutation({
+    mutationFn: ({ sourceSlug, pluginSlug }: { sourceSlug: string; pluginSlug: string }) =>
+      pluginSourcesApi.installPlugin(sourceSlug, pluginSlug),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['plugin-sources'] });
+      queryClient.invalidateQueries({ queryKey: ['plugins'] });
+    },
+  });
+
+  // Count plugins with updates available
+  const pluginsWithUpdates = installedPlugins?.filter(p => p.update_available).length ?? 0;
 
   // Check if a plugin is installed
   const isInstalled = (slug: string) => {
@@ -255,38 +327,79 @@ function PluginsPage() {
           </button>
         </div>
 
-        {/* Search Input */}
-        <div className="relative">
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={`Search ${activeTab}...`}
-            className="w-64 pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-          />
-          <svg
-            className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
+        {/* Search and Actions */}
+        <div className="flex items-center gap-3">
+          {/* Plugin Sources Button */}
+          <button
+            onClick={() => setShowSourcesModal(true)}
+            className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition flex items-center gap-2"
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-            />
-          </svg>
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
+            </svg>
+            Plugin Sources
+          </button>
+
+          {/* Check for Updates Button */}
+          <button
+            onClick={() => checkUpdatesMutation.mutate()}
+            disabled={checkUpdatesMutation.isPending}
+            className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition flex items-center gap-2 disabled:opacity-50"
+          >
+            <svg
+              className={`w-4 h-4 ${checkUpdatesMutation.isPending ? 'animate-spin' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          )}
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
+            </svg>
+            {checkUpdatesMutation.isPending ? 'Checking...' : 'Check Updates'}
+            {pluginsWithUpdates > 0 && (
+              <span className="px-1.5 py-0.5 bg-orange-500 text-white text-xs rounded-full">
+                {pluginsWithUpdates}
+              </span>
+            )}
+          </button>
+
+          {/* Search Input */}
+          <div className="relative">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={`Search ${activeTab}...`}
+              className="w-64 pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            />
+            <svg
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+              />
+            </svg>
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -335,6 +448,16 @@ function PluginsPage() {
                           >
                             {plugin.enabled ? 'Enabled' : 'Disabled'}
                           </span>
+                          {plugin.update_available && (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700">
+                              Update: v{plugin.available_version}
+                            </span>
+                          )}
+                          {plugin.source_name && (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-600">
+                              {plugin.source_name}
+                            </span>
+                          )}
                         </div>
                         {plugin.author && (
                           <p className="text-sm text-gray-500 mb-2">by {plugin.author}</p>
@@ -348,6 +471,18 @@ function PluginsPage() {
                         </div>
                       </div>
                       <div className="flex gap-2">
+                        {plugin.update_available && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              updatePluginMutation.mutate(plugin.slug);
+                            }}
+                            disabled={updatePluginMutation.isPending}
+                            className="px-3 py-1.5 bg-orange-100 text-orange-700 rounded-lg text-sm font-medium hover:bg-orange-200 transition disabled:opacity-50"
+                          >
+                            {updatePluginMutation.isPending ? 'Updating...' : 'Update'}
+                          </button>
+                        )}
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -741,6 +876,39 @@ function PluginsPage() {
             updatePluginConfigMutation.mutate({ slug: selectedPlugin.slug, config })
           }
           isSubmitting={updatePluginConfigMutation.isPending}
+        />
+      )}
+
+      {/* Plugin Sources Modal */}
+      {showSourcesModal && (
+        <PluginSourcesModal
+          sources={sources}
+          isLoading={loadingSources}
+          selectedSource={selectedSource}
+          onSelectSource={setSelectedSource}
+          onClose={() => {
+            setShowSourcesModal(false);
+            setSelectedSource(null);
+          }}
+          onAddSource={() => setShowAddSource(true)}
+          onRefresh={(slug) => refreshSourceMutation.mutate(slug)}
+          onToggle={(slug) => toggleSourceMutation.mutate(slug)}
+          onDelete={(slug) => deleteSourceMutation.mutate(slug)}
+          onInstallPlugin={(sourceSlug, pluginSlug) =>
+            installFromSourceMutation.mutate({ sourceSlug, pluginSlug })
+          }
+          isRefreshing={refreshSourceMutation.isPending}
+          isInstalling={installFromSourceMutation.isPending}
+        />
+      )}
+
+      {/* Add Source Modal */}
+      {showAddSource && (
+        <AddSourceModal
+          onClose={() => setShowAddSource(false)}
+          onSubmit={(url, name) => addSourceMutation.mutate({ url, name })}
+          isSubmitting={addSourceMutation.isPending}
+          error={addSourceMutation.error?.message}
         />
       )}
     </div>
@@ -1240,6 +1408,359 @@ function EditPluginConfigModal({
               className="flex-1 px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg font-medium hover:from-purple-700 hover:to-blue-700 transition disabled:opacity-50"
             >
               {isSubmitting ? 'Saving...' : 'Save Configuration'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// Plugin Sources Modal Component
+function PluginSourcesModal({
+  sources,
+  isLoading,
+  selectedSource,
+  onSelectSource,
+  onClose,
+  onAddSource,
+  onRefresh,
+  onToggle,
+  onDelete,
+  onInstallPlugin,
+  isRefreshing,
+  isInstalling,
+}: {
+  sources: PluginSource[] | undefined;
+  isLoading: boolean;
+  selectedSource: PluginSource | null;
+  onSelectSource: (source: PluginSource | null) => void;
+  onClose: () => void;
+  onAddSource: () => void;
+  onRefresh: (slug: string) => void;
+  onToggle: (slug: string) => void;
+  onDelete: (slug: string) => void;
+  onInstallPlugin: (sourceSlug: string, pluginSlug: string) => void;
+  isRefreshing: boolean;
+  isInstalling: boolean;
+}) {
+  const getSourceTypeBadge = (type: string) => {
+    if (type === 'builtin') {
+      return (
+        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+          Built-in
+        </span>
+      );
+    }
+    return (
+      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+        User
+      </span>
+    );
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl w-full max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
+        {/* Header */}
+        <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900">Plugin Sources</h2>
+            <p className="text-sm text-gray-500 mt-1">
+              Manage plugin repositories and install plugins from URLs
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onAddSource}
+              className="px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg font-medium hover:from-purple-700 hover:to-blue-700 transition flex items-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              Add Source
+            </button>
+            <button
+              onClick={onClose}
+              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-hidden flex">
+          {/* Source List */}
+          <div className="w-2/3 border-r border-gray-200 overflow-y-auto p-4">
+            {isLoading ? (
+              <div className="text-center py-12 text-gray-500">Loading sources...</div>
+            ) : sources?.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-gray-500 mb-4">No plugin sources configured</p>
+                <button
+                  onClick={onAddSource}
+                  className="text-purple-600 hover:text-purple-700 font-medium"
+                >
+                  Add your first source
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {sources?.map((source) => (
+                  <div
+                    key={source.slug}
+                    onClick={() => onSelectSource(source)}
+                    className={`bg-gray-50 rounded-xl p-4 cursor-pointer transition hover:bg-gray-100 ${
+                      selectedSource?.slug === source.slug ? 'ring-2 ring-purple-500 bg-purple-50' : ''
+                    }`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <h3 className="font-semibold text-gray-900 truncate">{source.name}</h3>
+                          {getSourceTypeBadge(source.source_type)}
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                              source.enabled
+                                ? 'bg-green-100 text-green-700'
+                                : 'bg-gray-100 text-gray-500'
+                            }`}
+                          >
+                            {source.enabled ? 'Enabled' : 'Disabled'}
+                          </span>
+                          {source.is_multi_plugin && (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">
+                              Multi-plugin
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500 font-mono truncate">{source.url}</p>
+                        {source.error_message && (
+                          <p className="text-xs text-red-500 mt-1 truncate">{source.error_message}</p>
+                        )}
+                        <div className="flex gap-3 mt-2 text-xs text-gray-500">
+                          <span>{source.plugins_count} installed</span>
+                          <span>{source.available_plugins?.length || 0} available</span>
+                        </div>
+                      </div>
+                      <div className="flex gap-1 ml-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onRefresh(source.slug);
+                          }}
+                          disabled={isRefreshing}
+                          className="p-1.5 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded transition"
+                          title="Refresh"
+                        >
+                          <svg
+                            className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                            />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onToggle(source.slug);
+                          }}
+                          className={`p-1.5 rounded transition ${
+                            source.enabled
+                              ? 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
+                              : 'text-purple-400 hover:text-purple-600 hover:bg-purple-50'
+                          }`}
+                          title={source.enabled ? 'Disable' : 'Enable'}
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            {source.enabled ? (
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                            ) : (
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            )}
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Source Details */}
+          <div className="w-1/3 overflow-y-auto p-4 bg-gray-50">
+            {selectedSource ? (
+              <div>
+                <h3 className="font-semibold text-gray-900 mb-4">{selectedSource.name}</h3>
+
+                <div className="space-y-3 mb-6 text-sm">
+                  <div>
+                    <span className="text-gray-500 block text-xs mb-1">URL</span>
+                    <p className="font-mono text-xs break-all">{selectedSource.url}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500 block text-xs mb-1">Type</span>
+                    <p className="font-medium capitalize">{selectedSource.source_type}</p>
+                  </div>
+                  {selectedSource.latest_version && (
+                    <div>
+                      <span className="text-gray-500 block text-xs mb-1">Latest Version</span>
+                      <p className="font-medium">{selectedSource.latest_version}</p>
+                    </div>
+                  )}
+                </div>
+
+                <h4 className="text-sm font-semibold text-gray-700 mb-2">Available Plugins</h4>
+                {selectedSource.available_plugins?.length === 0 ? (
+                  <p className="text-xs text-gray-500 mb-4">No plugins available. Try refreshing.</p>
+                ) : (
+                  <div className="space-y-2 mb-4 max-h-60 overflow-y-auto">
+                    {selectedSource.available_plugins?.map((plugin) => (
+                      <div
+                        key={plugin.slug}
+                        className="flex items-center justify-between p-2 bg-white rounded-lg"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm truncate">{plugin.name}</p>
+                          <p className="text-xs text-gray-500">v{plugin.version}</p>
+                        </div>
+                        {plugin.installed ? (
+                          <span className="text-xs text-green-600 font-medium">Installed</span>
+                        ) : (
+                          <button
+                            onClick={() => onInstallPlugin(selectedSource.slug, plugin.slug)}
+                            disabled={isInstalling}
+                            className="text-purple-600 hover:text-purple-700 text-xs font-medium"
+                          >
+                            {isInstalling ? '...' : 'Install'}
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {selectedSource.source_type === 'user' && (
+                  <button
+                    onClick={() => {
+                      if (confirm(`Remove ${selectedSource.name}?`)) {
+                        onDelete(selectedSource.slug);
+                      }
+                    }}
+                    className="w-full px-3 py-2 bg-red-50 text-red-600 rounded-lg text-sm font-medium hover:bg-red-100 transition"
+                  >
+                    Remove Source
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="text-center py-12 text-gray-500 text-sm">
+                Select a source to view details
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Add Source Modal Component
+function AddSourceModal({
+  onClose,
+  onSubmit,
+  isSubmitting,
+  error,
+}: {
+  onClose: () => void;
+  onSubmit: (url: string, name?: string) => void;
+  isSubmitting: boolean;
+  error?: string;
+}) {
+  const [url, setUrl] = useState('');
+  const [name, setName] = useState('');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSubmit(url, name || undefined);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
+      <div className="bg-white rounded-xl p-6 w-full max-w-lg">
+        <h2 className="text-xl font-semibold text-gray-900 mb-2">Add Plugin Source</h2>
+        <p className="text-sm text-gray-500 mb-6">
+          Add a GitHub repository URL or direct download link to discover and install plugins.
+        </p>
+
+        <form onSubmit={handleSubmit}>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Repository URL <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="url"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://github.com/user/repo"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                required
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Supports GitHub repository URLs. The repo should contain a datanexus-plugins.json or
+                datanexus-plugin.json manifest.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Name <span className="text-gray-400">(optional)</span>
+              </label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="My Plugin Source"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                If not provided, a name will be generated from the URL.
+              </p>
+            </div>
+
+            {error && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-sm text-red-600">{error}</p>
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-3 mt-6">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting || !url.trim()}
+              className="flex-1 px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg font-medium hover:from-purple-700 hover:to-blue-700 transition disabled:opacity-50"
+            >
+              {isSubmitting ? 'Adding...' : 'Add Source'}
             </button>
           </div>
         </form>

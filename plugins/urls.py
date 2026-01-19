@@ -11,6 +11,7 @@ router.register(r'plugins', api_views.PluginViewSet, basename='plugin')
 router.register(r'plugin-components', api_views.PluginComponentViewSet, basename='plugin-component')
 router.register(r'plugin-instances', api_views.PluginInstanceViewSet, basename='plugin-instance')
 router.register(r'plugin-logs', api_views.PluginExecutionLogViewSet, basename='plugin-log')
+router.register(r'plugin-sources', api_views.PluginSourceViewSet, basename='plugin-source')
 
 urlpatterns = [
     path('api/', include(router.urls)),

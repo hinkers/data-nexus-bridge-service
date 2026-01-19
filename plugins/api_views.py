@@ -1,13 +1,16 @@
 """
 API views for plugin management.
 """
+import re
+
+from django.utils.text import slugify
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from plugins.dependencies import check_dependencies, install_dependencies
 from plugins.executor import execute_datasource, execute_importer
-from plugins.models import Plugin, PluginComponent, PluginExecutionLog, PluginInstance
+from plugins.models import Plugin, PluginComponent, PluginExecutionLog, PluginInstance, PluginSource
 from plugins.registry import plugin_registry
 from plugins.serializers import (
     AvailablePluginSerializer,
@@ -18,6 +21,8 @@ from plugins.serializers import (
     PluginInstanceCreateSerializer,
     PluginInstanceSerializer,
     PluginSerializer,
+    PluginSourceCreateSerializer,
+    PluginSourceSerializer,
 )
 
 
@@ -289,6 +294,96 @@ class PluginViewSet(viewsets.ModelViewSet):
             'satisfied': len(missing) == 0,
         })
 
+    @action(detail=False, methods=['post'], url_path='check-updates')
+    def check_updates(self, request):
+        """
+        Check all installed plugins for updates.
+        """
+        from plugins.source_manager import PluginSourceManager
+
+        manager = PluginSourceManager()
+        updates = []
+
+        # Only check plugins that have a source
+        plugins = Plugin.objects.filter(source__isnull=False, enabled=True)
+
+        for plugin in plugins:
+            available = manager.check_for_updates(plugin)
+            if available:
+                updates.append({
+                    'slug': plugin.slug,
+                    'name': plugin.name,
+                    'current_version': plugin.installed_version,
+                    'available_version': available,
+                })
+
+        return Response({
+            'updates_available': len(updates),
+            'plugins': updates,
+        })
+
+    @action(detail=True, methods=['post'], url_path='check-update')
+    def check_update(self, request, slug=None):
+        """
+        Check a single plugin for updates.
+        """
+        plugin = self.get_object()
+
+        if not plugin.source:
+            return Response({
+                'update_available': False,
+                'message': 'Plugin was not installed from a source',
+            })
+
+        from plugins.source_manager import PluginSourceManager
+
+        manager = PluginSourceManager()
+        available = manager.check_for_updates(plugin)
+
+        return Response({
+            'update_available': available is not None,
+            'current_version': plugin.installed_version,
+            'available_version': available or plugin.installed_version,
+        })
+
+    @action(detail=True, methods=['post'], url_path='apply-update')
+    def apply_update(self, request, slug=None):
+        """
+        Update a plugin to the latest version.
+        """
+        plugin = self.get_object()
+
+        if not plugin.source:
+            return Response(
+                {'detail': 'Plugin was not installed from a source and cannot be updated'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        from plugins.source_manager import PluginSourceManager, PluginSourceError
+
+        manager = PluginSourceManager()
+
+        try:
+            updated = manager.update_plugin(plugin)
+            if updated:
+                plugin.refresh_from_db()
+                return Response({
+                    'success': True,
+                    'message': f'Updated {plugin.name} to v{plugin.version}',
+                    'version': plugin.version,
+                })
+            else:
+                return Response({
+                    'success': True,
+                    'message': 'Plugin is already at the latest version',
+                    'version': plugin.version,
+                })
+        except PluginSourceError as e:
+            return Response(
+                {'success': False, 'detail': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 
 class PluginComponentViewSet(viewsets.ReadOnlyModelViewSet):
     """
@@ -511,3 +606,210 @@ class PluginExecutionLogViewSet(viewsets.ReadOnlyModelViewSet):
             queryset = queryset.filter(event_type=event_type)
 
         return queryset
+
+
+class PluginSourceViewSet(viewsets.ModelViewSet):
+    """
+    API endpoint for managing plugin sources.
+    """
+    queryset = PluginSource.objects.all()
+    serializer_class = PluginSourceSerializer
+    lookup_field = 'slug'
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return PluginSourceCreateSerializer
+        return PluginSourceSerializer
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+
+        # Filter by source type
+        source_type = self.request.query_params.get('type')
+        if source_type:
+            queryset = queryset.filter(source_type=source_type)
+
+        # Filter by enabled status
+        enabled = self.request.query_params.get('enabled')
+        if enabled is not None:
+            queryset = queryset.filter(enabled=enabled.lower() == 'true')
+
+        return queryset
+
+    def create(self, request, *args, **kwargs):
+        """
+        Add a new plugin source URL.
+
+        Request body:
+        {
+            "url": "https://github.com/user/repo",
+            "name": "Optional Name"
+        }
+        """
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        url = serializer.validated_data['url']
+        name = serializer.validated_data.get('name', '')
+
+        # Generate slug from URL
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        path_parts = parsed.path.strip('/').split('/')
+        if len(path_parts) >= 2:
+            # GitHub-style URL: use owner-repo
+            slug_base = f"{path_parts[0]}-{path_parts[1]}"
+        else:
+            slug_base = path_parts[-1] if path_parts else 'source'
+
+        slug = slugify(slug_base)
+
+        # Ensure uniqueness
+        if PluginSource.objects.filter(slug=slug).exists():
+            counter = 1
+            while PluginSource.objects.filter(slug=f"{slug}-{counter}").exists():
+                counter += 1
+            slug = f"{slug}-{counter}"
+
+        # Check if URL already exists
+        if PluginSource.objects.filter(url=url).exists():
+            return Response(
+                {'detail': f'A source with this URL already exists'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Create the source
+        source = PluginSource.objects.create(
+            slug=slug,
+            name=name or slug_base.replace('-', ' ').replace('_', ' ').title(),
+            url=url,
+            source_type=PluginSource.SOURCE_TYPE_USER,
+        )
+
+        # Try to fetch the manifest
+        from plugins.source_manager import PluginSourceManager, PluginSourceError
+        manager = PluginSourceManager()
+        try:
+            manager.fetch_source(source)
+        except PluginSourceError as e:
+            # Source created but couldn't fetch manifest
+            source.error_message = str(e)
+            source.save()
+
+        output_serializer = PluginSourceSerializer(source)
+        return Response(output_serializer.data, status=status.HTTP_201_CREATED)
+
+    def destroy(self, request, *args, **kwargs):
+        """
+        Delete a user-added source.
+        Built-in sources cannot be deleted.
+        """
+        source = self.get_object()
+
+        if source.source_type == PluginSource.SOURCE_TYPE_BUILTIN:
+            return Response(
+                {'detail': 'Built-in sources cannot be deleted. You can disable them instead.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Note: Plugins installed from this source will remain but be orphaned
+        source.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=['post'])
+    def toggle(self, request, slug=None):
+        """
+        Toggle a source's enabled status.
+        """
+        source = self.get_object()
+        source.enabled = not source.enabled
+        source.save()
+        return Response({'enabled': source.enabled})
+
+    @action(detail=True, methods=['post'])
+    def refresh(self, request, slug=None):
+        """
+        Fetch the latest manifest from the source.
+        """
+        source = self.get_object()
+
+        from plugins.source_manager import PluginSourceManager, PluginSourceError
+        manager = PluginSourceManager()
+
+        try:
+            manifest = manager.fetch_source(source)
+            available_plugins = manager.get_available_plugins(source)
+            return Response({
+                'success': True,
+                'is_multi_plugin': source.is_multi_plugin,
+                'plugins_count': len(available_plugins),
+                'available_plugins': available_plugins,
+            })
+        except PluginSourceError as e:
+            return Response(
+                {'success': False, 'detail': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=True, methods=['post'], url_path='install/(?P<plugin_slug>[^/.]+)')
+    def install_plugin(self, request, slug=None, plugin_slug=None):
+        """
+        Install a plugin from this source.
+
+        URL: /api/plugin-sources/{source-slug}/install/{plugin-slug}/
+        """
+        source = self.get_object()
+
+        if not source.enabled:
+            return Response(
+                {'detail': 'Cannot install from a disabled source'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        from plugins.source_manager import PluginSourceManager, PluginSourceError
+        manager = PluginSourceManager()
+
+        try:
+            plugin = manager.install_plugin(source, plugin_slug)
+            return Response({
+                'success': True,
+                'plugin': {
+                    'id': plugin.id,
+                    'slug': plugin.slug,
+                    'name': plugin.name,
+                    'version': plugin.version,
+                },
+                'message': f'Successfully installed {plugin.name} v{plugin.version}',
+            }, status=status.HTTP_201_CREATED)
+        except PluginSourceError as e:
+            return Response(
+                {'success': False, 'detail': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+    @action(detail=True, methods=['get'])
+    def available(self, request, slug=None):
+        """
+        List available plugins from this source.
+        """
+        source = self.get_object()
+
+        from plugins.source_manager import PluginSourceManager
+        manager = PluginSourceManager()
+
+        # Refresh if never fetched
+        if not source.manifest_data:
+            from plugins.source_manager import PluginSourceError
+            try:
+                manager.fetch_source(source)
+            except PluginSourceError as e:
+                return Response(
+                    {'detail': f'Could not fetch source: {e}'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+
+        available_plugins = manager.get_available_plugins(source)
+        return Response({
+            'source': source.slug,
+            'plugins': available_plugins,
+        })

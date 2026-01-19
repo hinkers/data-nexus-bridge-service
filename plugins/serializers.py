@@ -3,13 +3,73 @@ Serializers for plugin models.
 """
 from rest_framework import serializers
 
-from plugins.models import Plugin, PluginComponent, PluginExecutionLog, PluginInstance
+from plugins.models import Plugin, PluginComponent, PluginExecutionLog, PluginInstance, PluginSource
+
+
+class PluginSourceSerializer(serializers.ModelSerializer):
+    """Serializer for PluginSource model."""
+
+    plugins_count = serializers.SerializerMethodField()
+    available_plugins = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PluginSource
+        fields = [
+            'id',
+            'slug',
+            'name',
+            'url',
+            'source_type',
+            'enabled',
+            'is_multi_plugin',
+            'manifest_data',
+            'last_checked_at',
+            'last_fetched_at',
+            'latest_version',
+            'error_message',
+            'created_at',
+            'updated_at',
+            'plugins_count',
+            'available_plugins',
+        ]
+        read_only_fields = [
+            'id', 'slug', 'is_multi_plugin', 'manifest_data',
+            'last_checked_at', 'last_fetched_at', 'latest_version',
+            'error_message', 'created_at', 'updated_at',
+            'plugins_count', 'available_plugins',
+        ]
+
+    def get_plugins_count(self, obj: PluginSource) -> int:
+        """Get count of installed plugins from this source."""
+        return obj.plugins.count()
+
+    def get_available_plugins(self, obj: PluginSource) -> list:
+        """Get list of available plugins from the manifest."""
+        from plugins.source_manager import PluginSourceManager
+        manager = PluginSourceManager()
+        return manager.get_available_plugins(obj)
+
+
+class PluginSourceCreateSerializer(serializers.Serializer):
+    """Serializer for creating a new plugin source."""
+
+    url = serializers.URLField(required=True)
+    name = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_url(self, value):
+        """Validate the URL format."""
+        # Basic URL validation - only allow HTTPS (or localhost for dev)
+        if not value.startswith('https://') and 'localhost' not in value and '127.0.0.1' not in value:
+            raise serializers.ValidationError("Only HTTPS URLs are allowed")
+        return value
 
 
 class PluginSerializer(serializers.ModelSerializer):
     """Serializer for Plugin model."""
 
     components_count = serializers.SerializerMethodField()
+    source_name = serializers.CharField(source='source.name', read_only=True, allow_null=True)
+    source_slug = serializers.CharField(source='source.slug', read_only=True, allow_null=True)
 
     class Meta:
         model = Plugin
@@ -26,8 +86,23 @@ class PluginSerializer(serializers.ModelSerializer):
             'config_schema',
             'config',
             'components_count',
+            # Source-related fields
+            'source',
+            'source_name',
+            'source_slug',
+            'source_path',
+            'installed_version',
+            'available_version',
+            'update_available',
+            'installed_from_url',
         ]
-        read_only_fields = ['id', 'slug', 'name', 'author', 'version', 'description', 'python_path', 'installed_at', 'config_schema', 'components_count']
+        read_only_fields = [
+            'id', 'slug', 'name', 'author', 'version', 'description',
+            'python_path', 'installed_at', 'config_schema', 'components_count',
+            'source', 'source_name', 'source_slug', 'source_path',
+            'installed_version', 'available_version', 'update_available',
+            'installed_from_url',
+        ]
 
     def get_components_count(self, obj: Plugin) -> dict:
         """Get count of each component type."""

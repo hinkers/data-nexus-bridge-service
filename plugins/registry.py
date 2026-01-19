@@ -160,6 +160,51 @@ class PluginRegistry:
             self._datasources[full_slug] = datasource_class
             logger.debug(f"  Registered data source: {datasource_meta.name} ({full_slug})")
 
+    def unregister_plugin(self, plugin_slug: str) -> bool:
+        """
+        Unregister a plugin and all its components.
+
+        Args:
+            plugin_slug: The slug of the plugin to unregister
+
+        Returns:
+            True if plugin was unregistered, False if not found
+        """
+        if plugin_slug not in self._plugins:
+            return False
+
+        plugin_class = self._plugins[plugin_slug]
+
+        # Remove importers
+        for importer_class in plugin_class.get_importers():
+            importer_meta = importer_class.get_meta()
+            full_slug = f"{plugin_slug}.{importer_meta.slug}"
+            self._importers.pop(full_slug, None)
+
+        # Remove pre-processors
+        for preprocessor_class in plugin_class.get_preprocessors():
+            preprocessor_meta = preprocessor_class.get_meta()
+            full_slug = f"{plugin_slug}.{preprocessor_meta.slug}"
+            self._preprocessors.pop(full_slug, None)
+
+        # Remove post-processors
+        for postprocessor_class in plugin_class.get_postprocessors():
+            postprocessor_meta = postprocessor_class.get_meta()
+            full_slug = f"{plugin_slug}.{postprocessor_meta.slug}"
+            self._postprocessors.pop(full_slug, None)
+
+        # Remove data sources
+        for datasource_class in plugin_class.get_datasources():
+            datasource_meta = datasource_class.get_meta()
+            full_slug = f"{plugin_slug}.{datasource_meta.slug}"
+            self._datasources.pop(full_slug, None)
+
+        # Remove the plugin itself
+        del self._plugins[plugin_slug]
+        logger.info(f"Unregistered plugin: {plugin_slug}")
+
+        return True
+
     def get_plugin(self, slug: str) -> type["BasePlugin"] | None:
         """Get a plugin class by slug."""
         return self._plugins.get(slug)
