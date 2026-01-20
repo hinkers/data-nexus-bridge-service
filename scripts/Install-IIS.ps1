@@ -198,6 +198,42 @@ function Get-InstallConfiguration {
     Write-Host "`n--- Application Pool ---" -ForegroundColor Yellow
     $config.AppPoolName = Read-PromptWithDefault -Prompt "Application Pool name" -Default "$($config.SiteName)AppPool"
 
+    # Admin User configuration
+    Write-Host "`n--- Admin User ---" -ForegroundColor Yellow
+    $config.AdminUsername = Read-PromptWithDefault -Prompt "Admin username" -Default "admin"
+    $config.AdminEmail = Read-PromptWithDefault -Prompt "Admin email (optional)" -Default ""
+
+    # Read password securely with confirmation
+    $passwordMatch = $false
+    while (-not $passwordMatch) {
+        $adminPassword = Read-Host "Admin password" -AsSecureString
+        $confirmPassword = Read-Host "Confirm password" -AsSecureString
+
+        # Convert to plain text for comparison
+        $bstr1 = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($adminPassword)
+        $plain1 = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr1)
+        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr1)
+
+        $bstr2 = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($confirmPassword)
+        $plain2 = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr2)
+        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr2)
+
+        if ($plain1 -eq $plain2) {
+            if ([string]::IsNullOrWhiteSpace($plain1)) {
+                Write-Warning "Password cannot be empty. Please try again."
+            } else {
+                $passwordMatch = $true
+                $config.AdminPassword = $plain1
+            }
+        } else {
+            Write-Warning "Passwords do not match. Please try again."
+        }
+
+        # Clear temp variables
+        $plain1 = $null
+        $plain2 = $null
+    }
+
     # Summary
     Write-Host "`n" -NoNewline
     Write-Host "==================== Configuration Summary ====================" -ForegroundColor Cyan
@@ -210,6 +246,7 @@ function Get-InstallConfiguration {
     Write-Host "Database Name:    $($config.DbName)"
     Write-Host "Debug Mode:       $($config.Debug)"
     Write-Host "SSL Thumbprint:   $(if ($config.CertThumbprint) { $config.CertThumbprint.Substring(0,8) + '...' } else { '(not set)' })"
+    Write-Host "Admin Username:   $($config.AdminUsername)"
     Write-Host "===============================================================" -ForegroundColor Cyan
 
     if (-not (Read-YesNo -Prompt "`nProceed with installation?" -Default $true)) {
@@ -594,7 +631,14 @@ function Install-PythonDependencies {
 
     # Enable wfastcgi
     Write-Info "Enabling wfastcgi in IIS..."
-    & $venvPython -m wfastcgi-enable 2>&1 | Out-Null
+    $wfastcgiScript = Join-Path -Path $venvPath -ChildPath "Scripts\wfastcgi-enable.exe"
+    if (Test-Path -Path $wfastcgiScript) {
+        & $wfastcgiScript 2>&1 | Out-Null
+    } else {
+        # Fallback: try running wfastcgi module directly (older versions)
+        & $venvPython -c "import wfastcgi; wfastcgi.enable()" 2>&1 | Out-Null
+    }
+    Write-Success "wfastcgi enabled"
 
     return $venvPath
 }
@@ -911,7 +955,8 @@ function Invoke-DjangoMigrations {
 function New-DjangoSuperuser {
     param(
         [string]$InstallPath,
-        [string]$VenvPath
+        [string]$VenvPath,
+        [hashtable]$Config
     )
 
     Write-Step "Creating admin superuser..."
@@ -919,39 +964,12 @@ function New-DjangoSuperuser {
     $pythonExe = Join-Path $VenvPath "Scripts\python.exe"
     $managePy = Join-Path $InstallPath "manage.py"
 
-    # Prompt for credentials
-    Write-Host ""
-    Write-Host "Please enter credentials for the admin account:" -ForegroundColor Yellow
+    $username = $Config.AdminUsername
+    $email = $Config.AdminEmail
+    $password = $Config.AdminPassword
 
-    $username = Read-Host "  Username"
-    if ([string]::IsNullOrWhiteSpace($username)) {
-        $username = "admin"
-        Write-Info "Using default username: admin"
-    }
-
-    $email = Read-Host "  Email (optional)"
-
-    # Read password securely
-    $password = Read-Host "  Password" -AsSecureString
-    $confirmPassword = Read-Host "  Confirm Password" -AsSecureString
-
-    # Convert to plain text for comparison
-    $bstr1 = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
-    $plainPassword = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr1)
-    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr1)
-
-    $bstr2 = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($confirmPassword)
-    $plainConfirm = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr2)
-    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr2)
-
-    if ($plainPassword -ne $plainConfirm) {
-        Write-Warning "Passwords do not match. Skipping superuser creation."
-        Write-Info "You can create a superuser later with: python manage.py createsuperuser"
-        return
-    }
-
-    if ([string]::IsNullOrWhiteSpace($plainPassword)) {
-        Write-Warning "Empty password provided. Skipping superuser creation."
+    if ([string]::IsNullOrWhiteSpace($username) -or [string]::IsNullOrWhiteSpace($password)) {
+        Write-Warning "Admin credentials not provided. Skipping superuser creation."
         Write-Info "You can create a superuser later with: python manage.py createsuperuser"
         return
     }
@@ -959,7 +977,7 @@ function New-DjangoSuperuser {
     # Create superuser using Django management command with environment variables
     Push-Location $InstallPath
     try {
-        $env:DJANGO_SUPERUSER_PASSWORD = $plainPassword
+        $env:DJANGO_SUPERUSER_PASSWORD = $password
         $env:DJANGO_SUPERUSER_USERNAME = $username
         $env:DJANGO_SUPERUSER_EMAIL = if ($email) { $email } else { "$username@localhost" }
 
@@ -988,10 +1006,6 @@ function New-DjangoSuperuser {
         Remove-Item Env:DJANGO_SUPERUSER_EMAIL -ErrorAction SilentlyContinue
         Pop-Location
     }
-
-    # Clear password from memory
-    $plainPassword = $null
-    $plainConfirm = $null
 }
 
 # Main installation function
@@ -1052,7 +1066,7 @@ function Install-DataNexusBridge {
         Install-SchedulerTask -InstallPath $config.InstallPath -VenvPath $venvPath -SiteName $config.SiteName
 
         # Create superuser
-        New-DjangoSuperuser -InstallPath $config.InstallPath -VenvPath $venvPath
+        New-DjangoSuperuser -InstallPath $config.InstallPath -VenvPath $venvPath -Config $config
 
         Write-Host "`n" -NoNewline
         Write-Host "============================================" -ForegroundColor Green
