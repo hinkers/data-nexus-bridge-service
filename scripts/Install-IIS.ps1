@@ -440,22 +440,29 @@ function Get-GitHubRepository {
 function Get-SourcePath {
     # Check if we're running from within a repository
     # $PSScriptRoot is empty when running via iex/Invoke-Expression
-    if ([string]::IsNullOrWhiteSpace($PSScriptRoot)) {
+    $scriptRoot = $PSScriptRoot
+    if (-not $scriptRoot -or [string]::IsNullOrWhiteSpace($scriptRoot)) {
         Write-Info "Running remotely - will download repository from GitHub"
         return $null
     }
 
     # Check if parent directory contains expected files (manage.py, requirements.txt)
-    $repoRoot = Split-Path -Parent $PSScriptRoot
-    if ([string]::IsNullOrWhiteSpace($repoRoot)) {
+    try {
+        $repoRoot = Split-Path -Parent $scriptRoot -ErrorAction Stop
+    } catch {
         Write-Info "Could not determine repository root - will download from GitHub"
         return $null
     }
 
-    $managePy = Join-Path $repoRoot "manage.py"
-    $requirements = Join-Path $repoRoot "requirements.txt"
+    if (-not $repoRoot -or [string]::IsNullOrWhiteSpace($repoRoot)) {
+        Write-Info "Could not determine repository root - will download from GitHub"
+        return $null
+    }
 
-    if ((Test-Path $managePy) -and (Test-Path $requirements)) {
+    $managePy = Join-Path -Path $repoRoot -ChildPath "manage.py"
+    $requirements = Join-Path -Path $repoRoot -ChildPath "requirements.txt"
+
+    if ((Test-Path -Path $managePy -ErrorAction SilentlyContinue) -and (Test-Path -Path $requirements -ErrorAction SilentlyContinue)) {
         Write-Info "Running from repository: $repoRoot"
         return $repoRoot
     }
@@ -520,46 +527,73 @@ function Install-PythonDependencies {
 
     Write-Step "Setting up Python virtual environment..."
 
-    $pythonExe = Join-Path $PythonPath "python.exe"
-    $venvPath = Join-Path $InstallPath "venv"
-    $venvPython = Join-Path $venvPath "Scripts\python.exe"
-    $venvPip = Join-Path $venvPath "Scripts\pip.exe"
+    $pythonExe = Join-Path -Path $PythonPath -ChildPath "python.exe"
+    $venvPath = Join-Path -Path $InstallPath -ChildPath "venv"
+    $venvPython = Join-Path -Path $venvPath -ChildPath "Scripts\python.exe"
+    $venvPip = Join-Path -Path $venvPath -ChildPath "Scripts\pip.exe"
+
+    # Verify Python exists
+    if (-not (Test-Path -Path $pythonExe)) {
+        throw "Python not found at: $pythonExe"
+    }
 
     # Create virtual environment
-    if (-not (Test-Path $venvPython)) {
+    if (-not (Test-Path -Path $venvPython)) {
         Write-Info "Creating virtual environment..."
-        & $pythonExe -m venv $venvPath
+        Write-Info "Python path: $pythonExe"
+        Write-Info "Venv path: $venvPath"
+        $result = & $pythonExe -m venv $venvPath 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host $result -ForegroundColor Red
+            throw "Failed to create virtual environment"
+        }
         Write-Success "Virtual environment created"
     } else {
         Write-Info "Virtual environment already exists"
     }
 
+    # Verify venv Python exists
+    if (-not (Test-Path -Path $venvPython)) {
+        throw "Virtual environment Python not found at: $venvPython"
+    }
+
     # Upgrade pip
     Write-Info "Upgrading pip..."
-    & $venvPython -m pip install --upgrade pip | Out-Null
+    & $venvPython -m pip install --upgrade pip 2>&1 | Out-Null
 
     # Install requirements (prefer production requirements if available)
-    $requirementsProdPath = Join-Path $InstallPath "requirements-production.txt"
-    $requirementsPath = Join-Path $InstallPath "requirements.txt"
+    $requirementsProdPath = Join-Path -Path $InstallPath -ChildPath "requirements-production.txt"
+    $requirementsPath = Join-Path -Path $InstallPath -ChildPath "requirements.txt"
 
-    if (Test-Path $requirementsProdPath) {
+    if (Test-Path -Path $requirementsProdPath) {
         Write-Info "Installing production Python dependencies..."
         & $venvPip install -r $requirementsProdPath
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to install production dependencies"
+        }
         Write-Success "Production Python dependencies installed"
-    } elseif (Test-Path $requirementsPath) {
+    } elseif (Test-Path -Path $requirementsPath) {
         Write-Info "Installing Python dependencies..."
         & $venvPip install -r $requirementsPath
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to install dependencies"
+        }
         Write-Success "Python dependencies installed"
 
         # Install additional IIS-specific packages if not in requirements
         Write-Info "Installing IIS deployment packages..."
         & $venvPip install wfastcgi mssql-django pyodbc
-        Write-Success "IIS packages installed"
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "Some IIS packages may have failed to install"
+        } else {
+            Write-Success "IIS packages installed"
+        }
+    } else {
+        Write-Warning "No requirements file found at $requirementsPath"
     }
 
     # Enable wfastcgi
     Write-Info "Enabling wfastcgi in IIS..."
-    $wfastcgiPath = Join-Path $venvPath "Scripts\wfastcgi.exe"
     & $venvPython -m wfastcgi-enable 2>&1 | Out-Null
 
     return $venvPath
@@ -896,6 +930,11 @@ function Install-DataNexusBridge {
     } catch {
         Write-Host "`n" -NoNewline
         Write-Error "Installation failed: $($_.Exception.Message)"
+        Write-Host ""
+        Write-Host "Error details:" -ForegroundColor Red
+        Write-Host $_.Exception.ToString() -ForegroundColor Red
+        Write-Host ""
+        Write-Host "Stack trace:" -ForegroundColor Red
         Write-Host $_.ScriptStackTrace -ForegroundColor Red
 
         # Cleanup on failure too
@@ -903,6 +942,9 @@ function Install-DataNexusBridge {
             Remove-Item $sourcePath -Recurse -Force -ErrorAction SilentlyContinue
         }
 
+        Write-Host ""
+        Write-Host "Press any key to exit..." -ForegroundColor Yellow
+        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
         exit 1
     }
 }
