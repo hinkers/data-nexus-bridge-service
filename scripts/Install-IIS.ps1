@@ -687,35 +687,46 @@ function Build-Frontend {
         return
     }
 
-    Push-Location $frontendPath
+    # Find npm executable
+    $npmCmd = Get-Command npm -ErrorAction SilentlyContinue
+    if (-not $npmCmd) {
+        throw "npm not found in PATH"
+    }
+    $npmPath = $npmCmd.Source
+
+    # Use temp files for capturing output reliably
+    $stdoutFile = Join-Path $env:TEMP "npm-stdout.txt"
+    $stderrFile = Join-Path $env:TEMP "npm-stderr.txt"
+
     try {
         # Install dependencies
         Write-Info "Installing npm dependencies..."
-        $npmInstallOutput = & npm install 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host ($npmInstallOutput | Out-String) -ForegroundColor Red
-            throw "npm install failed with exit code $LASTEXITCODE"
+        $installProcess = Start-Process -FilePath $npmPath -ArgumentList "install" -WorkingDirectory $frontendPath -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
+
+        if ($installProcess.ExitCode -ne 0) {
+            Write-Host "`nnpm install output:" -ForegroundColor Yellow
+            if (Test-Path $stdoutFile) { Get-Content $stdoutFile | Write-Host }
+            if (Test-Path $stderrFile) { Get-Content $stderrFile | Write-Host -ForegroundColor Red }
+            throw "npm install failed with exit code $($installProcess.ExitCode)"
         }
         Write-Success "npm dependencies installed"
 
         # Build
         Write-Info "Building production bundle..."
-        $npmBuildOutput = & npm run build 2>&1
-        $buildExitCode = $LASTEXITCODE
+        $buildProcess = Start-Process -FilePath $npmPath -ArgumentList "run", "build" -WorkingDirectory $frontendPath -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
 
-        # Always show build output if there's an error
-        if ($buildExitCode -ne 0) {
-            Write-Host "`nBuild output:" -ForegroundColor Yellow
-            $npmBuildOutput | ForEach-Object {
-                $line = if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.ToString() } else { $_ }
-                Write-Host $line -ForegroundColor Red
-            }
-            throw "npm build failed with exit code $buildExitCode"
+        if ($buildProcess.ExitCode -ne 0) {
+            Write-Host "`nnpm build output:" -ForegroundColor Yellow
+            if (Test-Path $stdoutFile) { Get-Content $stdoutFile | Write-Host }
+            if (Test-Path $stderrFile) { Get-Content $stderrFile | Write-Host -ForegroundColor Red }
+            throw "npm build failed with exit code $($buildProcess.ExitCode)"
         }
 
         Write-Success "Frontend built successfully"
     } finally {
-        Pop-Location
+        # Cleanup temp files
+        Remove-Item $stdoutFile -Force -ErrorAction SilentlyContinue
+        Remove-Item $stderrFile -Force -ErrorAction SilentlyContinue
     }
 }
 
