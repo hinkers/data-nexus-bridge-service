@@ -107,19 +107,19 @@ function CollectionsPage() {
   };
 
   if (isLoading) return (
-    <div className="p-6 md:p-8 lg:p-10 w-full max-w-7xl">
+    <div className="p-6 md:p-8 lg:p-10 w-full">
       <div className="text-center text-gray-500">Loading document types...</div>
     </div>
   );
 
   if (error) return (
-    <div className="p-6 md:p-8 lg:p-10 w-full max-w-7xl">
+    <div className="p-6 md:p-8 lg:p-10 w-full">
       <div className="text-center text-red-600">Error loading document types: {String(error)}</div>
     </div>
   );
 
   return (
-    <div className="p-6 md:p-8 lg:p-10 w-full max-w-7xl">
+    <div className="p-6 md:p-8 lg:p-10 w-full">
       <div className="mb-8">
         <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Document Types</h1>
         <p className="text-gray-500 mt-1">View and manage Affinda document types</p>

@@ -89,7 +89,7 @@ function PluginSourcesPage() {
   };
 
   return (
-    <div className="p-6 md:p-8 lg:p-10 w-full max-w-7xl">
+    <div className="p-6 md:p-8 lg:p-10 w-full">
       <div className="mb-8">
         <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Plugin Sources</h1>
         <p className="text-gray-500 mt-1">Manage plugin repositories and install plugins from URLs</p>

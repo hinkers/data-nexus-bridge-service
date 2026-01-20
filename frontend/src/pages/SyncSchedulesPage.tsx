@@ -242,7 +242,7 @@ function SyncSchedulesPage() {
   };
 
   return (
-    <div className="p-6 md:p-8 lg:p-10 w-full max-w-7xl">
+    <div className="p-6 md:p-8 lg:p-10 w-full">
       <div className="mb-8">
         <div className="flex justify-between items-start">
           <div>
