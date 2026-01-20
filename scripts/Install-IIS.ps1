@@ -14,8 +14,16 @@
     - SQL Server instance (local or remote)
     - SSL certificate already installed on the server
 
+    The script can be run in two ways:
+    1. From within the repository: .\Install-IIS.ps1
+    2. One-liner from GitHub (downloads the repo automatically):
+       & ([scriptblock]::Create((irm https://raw.githubusercontent.com/hinkers/data-nexus-bridge-service/master/scripts/Install-IIS.ps1)))
+
 .PARAMETER ConfigFile
     Optional path to a JSON configuration file for unattended installs.
+
+.PARAMETER Branch
+    Git branch to use when downloading from GitHub. Default: master
 
 .EXAMPLE
     .\Install-IIS.ps1
@@ -23,26 +31,46 @@
 .EXAMPLE
     .\Install-IIS.ps1 -ConfigFile .\install-config.json
 
+.EXAMPLE
+    # One-liner install from GitHub (recommended)
+    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/hinkers/data-nexus-bridge-service/master/scripts/Install-IIS.ps1)))
+
+.EXAMPLE
+    # Alternative: Download and run
+    $script = irm https://raw.githubusercontent.com/hinkers/data-nexus-bridge-service/master/scripts/Install-IIS.ps1; Invoke-Expression $script
+
 .NOTES
     Author: Data Nexus Bridge
-    Version: 1.0.0
+    Version: 1.1.0
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $false)]
-    [string]$ConfigFile
+    [string]$ConfigFile,
+
+    [Parameter(Mandatory = $false)]
+    [string]$Branch = "master"
 )
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
+# Ensure Branch has a default value (needed when running via iex)
+if ([string]::IsNullOrWhiteSpace($Branch)) {
+    $Branch = "master"
+}
+
 # Script constants
-$SCRIPT_VERSION = "1.0.0"
+$SCRIPT_VERSION = "1.1.0"
 $PYTHON_VERSION = "3.11.9"
 $PYTHON_DOWNLOAD_URL = "https://www.python.org/ftp/python/$PYTHON_VERSION/python-$PYTHON_VERSION-amd64.exe"
 $NODE_VERSION = "20.11.0"
 $NODE_DOWNLOAD_URL = "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-x64.msi"
+$GIT_VERSION = "2.43.0"
+$GIT_DOWNLOAD_URL = "https://github.com/git-for-windows/git/releases/download/v$GIT_VERSION.windows.1/Git-$GIT_VERSION-64-bit.exe"
+$GITHUB_REPO = "hinkers/data-nexus-bridge-service"
+$GITHUB_ZIP_URL = "https://github.com/$GITHUB_REPO/archive/refs/heads/$Branch.zip"
 
 # Colors for output
 function Write-Step { param($Message) Write-Host "`n>> $Message" -ForegroundColor Cyan }
@@ -304,12 +332,137 @@ function Install-NodeJS {
     Start-Process -FilePath "msiexec.exe" -ArgumentList "/i", $installerPath, "/quiet", "/norestart" -Wait -NoNewWindow
 
     # Refresh PATH
-    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+    $machinePath = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+    $userPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
+    if ($machinePath -or $userPath) {
+        $env:Path = ($machinePath, $userPath | Where-Object { $_ }) -join ";"
+    }
 
     Write-Success "Node.js installed successfully"
 
     # Clean up
     Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
+}
+
+# Install Git
+function Install-Git {
+    Write-Step "Checking Git..."
+
+    $git = Get-Command git -ErrorAction SilentlyContinue
+    if ($git) {
+        $version = & git --version
+        Write-Success "Git already installed: $version"
+        return
+    }
+
+    $installerPath = Join-Path $env:TEMP "git-installer.exe"
+
+    Write-Info "Downloading Git installer..."
+    Invoke-WebRequest -Uri $GIT_DOWNLOAD_URL -OutFile $installerPath
+
+    Write-Info "Installing Git..."
+    $installArgs = @(
+        "/VERYSILENT",
+        "/NORESTART",
+        "/NOCANCEL",
+        "/SP-",
+        "/CLOSEAPPLICATIONS",
+        "/RESTARTAPPLICATIONS",
+        "/COMPONENTS=icons,ext\reg\shellhere,assoc,assoc_sh"
+    )
+    Start-Process -FilePath $installerPath -ArgumentList $installArgs -Wait -NoNewWindow
+
+    # Refresh PATH
+    $machinePath = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+    $userPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
+    if ($machinePath -or $userPath) {
+        $env:Path = ($machinePath, $userPath | Where-Object { $_ }) -join ";"
+    }
+
+    # Verify installation
+    $git = Get-Command git -ErrorAction SilentlyContinue
+    if ($git) {
+        Write-Success "Git installed successfully"
+    } else {
+        throw "Git installation failed"
+    }
+
+    # Clean up
+    Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
+}
+
+# Download repository from GitHub
+function Get-GitHubRepository {
+    param(
+        [string]$TargetPath
+    )
+
+    Write-Step "Downloading repository from GitHub..."
+
+    $tempZipPath = Join-Path $env:TEMP "datanexus-repo.zip"
+    $tempExtractPath = Join-Path $env:TEMP "datanexus-extract"
+
+    # Download the zip file
+    Write-Info "Downloading from: $GITHUB_ZIP_URL"
+    Invoke-WebRequest -Uri $GITHUB_ZIP_URL -OutFile $tempZipPath
+
+    # Extract
+    Write-Info "Extracting archive..."
+    if (Test-Path $tempExtractPath) {
+        Remove-Item $tempExtractPath -Recurse -Force
+    }
+    Expand-Archive -Path $tempZipPath -DestinationPath $tempExtractPath -Force
+
+    # Find the extracted folder (GitHub adds branch name suffix)
+    $extractedFolder = Get-ChildItem -Path $tempExtractPath -Directory | Select-Object -First 1
+    if (-not $extractedFolder) {
+        throw "Failed to find extracted repository folder"
+    }
+
+    # Create target directory if it doesn't exist
+    if (-not (Test-Path $TargetPath)) {
+        New-Item -ItemType Directory -Path $TargetPath -Force | Out-Null
+    }
+
+    # Move contents to target path
+    Write-Info "Moving files to: $TargetPath"
+    Get-ChildItem -Path $extractedFolder.FullName | Move-Item -Destination $TargetPath -Force
+
+    # Cleanup
+    Remove-Item $tempZipPath -Force -ErrorAction SilentlyContinue
+    Remove-Item $tempExtractPath -Recurse -Force -ErrorAction SilentlyContinue
+
+    Write-Success "Repository downloaded to: $TargetPath"
+    return $TargetPath
+}
+
+# Detect if running from within repo or remotely
+function Get-SourcePath {
+    # Check if we're running from within a repository
+    # $PSScriptRoot is empty when running via iex/Invoke-Expression
+    if ([string]::IsNullOrWhiteSpace($PSScriptRoot)) {
+        Write-Info "Running remotely - will download repository from GitHub"
+        return $null
+    }
+
+    # Check if parent directory contains expected files (manage.py, requirements.txt)
+    $repoRoot = Split-Path -Parent $PSScriptRoot
+    if ([string]::IsNullOrWhiteSpace($repoRoot)) {
+        Write-Info "Could not determine repository root - will download from GitHub"
+        return $null
+    }
+
+    $managePy = Join-Path $repoRoot "manage.py"
+    $requirements = Join-Path $repoRoot "requirements.txt"
+
+    if ((Test-Path $managePy) -and (Test-Path $requirements)) {
+        Write-Info "Running from repository: $repoRoot"
+        return $repoRoot
+    }
+
+    # Not in a valid repo
+    Write-Info "Not running from repository - will download from GitHub"
+    return $null
 }
 
 # Create application directory and copy files
@@ -671,25 +824,34 @@ function Install-DataNexusBridge {
         exit 1
     }
 
-    # Determine source path (where this script is running from)
-    $sourcePath = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-    if (-not $sourcePath) {
-        $sourcePath = Get-Location
-    }
+    # Determine source path (where this script is running from or download from GitHub)
+    $sourcePath = Get-SourcePath
+    $downloadedRepo = $false
 
-    Write-Info "Source directory: $sourcePath"
-
-    # Get configuration
-    if ($ConfigFile -and (Test-Path $ConfigFile)) {
+    # Get configuration first (we need InstallPath before downloading)
+    if (-not [string]::IsNullOrWhiteSpace($ConfigFile) -and (Test-Path -Path $ConfigFile -ErrorAction SilentlyContinue)) {
         Write-Info "Loading configuration from: $ConfigFile"
-        $config = Get-Content $ConfigFile | ConvertFrom-Json -AsHashtable
+        $config = Get-Content -Path $ConfigFile | ConvertFrom-Json -AsHashtable
     } else {
         $config = Get-InstallConfiguration
     }
 
+    # If no local source, download from GitHub to a temp location
+    if (-not $sourcePath) {
+        $tempSourcePath = Join-Path $env:TEMP "datanexus-source"
+        if (Test-Path $tempSourcePath) {
+            Remove-Item $tempSourcePath -Recurse -Force
+        }
+        $sourcePath = Get-GitHubRepository -TargetPath $tempSourcePath
+        $downloadedRepo = $true
+    }
+
+    Write-Info "Source directory: $sourcePath"
+
     try {
         # Install prerequisites
         Install-IISFeatures
+        Install-Git
         Install-Python -PythonPath $config.PythonPath
         Install-NodeJS
 
@@ -725,10 +887,22 @@ function Install-DataNexusBridge {
         Write-Host "  3. Access the admin panel at /admin/"
         Write-Host ""
 
+        # Cleanup downloaded repo if we downloaded it
+        if ($downloadedRepo -and (Test-Path $sourcePath)) {
+            Write-Info "Cleaning up temporary source files..."
+            Remove-Item $sourcePath -Recurse -Force -ErrorAction SilentlyContinue
+        }
+
     } catch {
         Write-Host "`n" -NoNewline
         Write-Error "Installation failed: $($_.Exception.Message)"
         Write-Host $_.ScriptStackTrace -ForegroundColor Red
+
+        # Cleanup on failure too
+        if ($downloadedRepo -and (Test-Path $sourcePath)) {
+            Remove-Item $sourcePath -Recurse -Force -ErrorAction SilentlyContinue
+        }
+
         exit 1
     }
 }
