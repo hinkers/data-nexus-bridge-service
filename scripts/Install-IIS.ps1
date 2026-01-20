@@ -629,16 +629,28 @@ function Install-PythonDependencies {
         Write-Warning "No requirements file found at $requirementsPath"
     }
 
-    # Enable wfastcgi
+    # Enable wfastcgi (ignore errors if already enabled)
     Write-Info "Enabling wfastcgi in IIS..."
     $wfastcgiScript = Join-Path -Path $venvPath -ChildPath "Scripts\wfastcgi-enable.exe"
-    if (Test-Path -Path $wfastcgiScript) {
-        & $wfastcgiScript 2>&1 | Out-Null
-    } else {
-        # Fallback: try running wfastcgi module directly (older versions)
-        & $venvPython -c "import wfastcgi; wfastcgi.enable()" 2>&1 | Out-Null
+    try {
+        if (Test-Path -Path $wfastcgiScript) {
+            $wfastcgiOutput = & $wfastcgiScript 2>&1
+            # Check if it was already enabled or succeeded
+            if ($LASTEXITCODE -eq 0 -or $wfastcgiOutput -match "already" -or $wfastcgiOutput -match "enabled") {
+                Write-Success "wfastcgi enabled"
+            } else {
+                Write-Warning "wfastcgi enable returned: $wfastcgiOutput"
+            }
+        } else {
+            # Fallback: try running wfastcgi module directly (older versions)
+            $wfastcgiOutput = & $venvPython -c "import wfastcgi; wfastcgi.enable()" 2>&1
+            Write-Success "wfastcgi enabled"
+        }
+    } catch {
+        # If it fails, it might already be enabled - continue anyway
+        Write-Warning "wfastcgi enable warning: $($_.Exception.Message)"
+        Write-Info "Continuing - wfastcgi may already be enabled"
     }
-    Write-Success "wfastcgi enabled"
 
     return $venvPath
 }
