@@ -1,8 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { collectionsApi, syncHistoryApi, syncSchedulesApi, type Collection, type DataSourceInstance, type SyncSchedule, type SyncScheduleRun } from '../api/client';
 
 function SyncSchedulesPage() {
+  useEffect(() => {
+    document.title = 'Sync Schedules - DNBS';
+  }, []);
+
   const queryClient = useQueryClient();
 
   // State

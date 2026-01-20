@@ -12,6 +12,10 @@ import {
 } from '../api/client';
 
 function CollectionViewsPage() {
+  useEffect(() => {
+    document.title = 'Views - DNBS';
+  }, []);
+
   const [views, setViews] = useState<CollectionView[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [isLoading, setIsLoading] = useState(true);

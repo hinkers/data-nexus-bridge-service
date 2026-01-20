@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   pluginsApi,
@@ -15,6 +15,10 @@ import {
 type TabType = 'installed' | 'available' | 'instances';
 
 function PluginsPage() {
+  useEffect(() => {
+    document.title = 'Plugins - DNBS';
+  }, []);
+
   const [activeTab, setActiveTab] = useState<TabType>('installed');
   const [selectedPlugin, setSelectedPlugin] = useState<Plugin | null>(null);
   const [showCreateInstance, setShowCreateInstance] = useState(false);

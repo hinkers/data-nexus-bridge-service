@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { collectionsApi, workspacesApi, type Collection, type CollectionSyncStatus } from '../api/client';
@@ -6,6 +6,10 @@ import { collectionsApi, workspacesApi, type Collection, type CollectionSyncStat
 function CollectionsPage() {
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    document.title = 'Document Types - DNBS';
+  }, []);
 
   // Sync state
   const [syncingCollection, setSyncingCollection] = useState<string | null>(null);

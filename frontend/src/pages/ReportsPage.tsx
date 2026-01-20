@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { reportsApi, syncHistoryApi, type SystemReports, type SystemReportsAlert, type SyncLogEntry } from '../api/client';
@@ -12,6 +12,10 @@ const TIME_RANGE_OPTIONS = [
 ];
 
 function ReportsPage() {
+  useEffect(() => {
+    document.title = 'Reports - DNBS';
+  }, []);
+
   const [selectedDays, setSelectedDays] = useState(7);
   const [selectedSyncId, setSelectedSyncId] = useState<number | null>(null);
   const [logLevelFilter, setLogLevelFilter] = useState<string>('');

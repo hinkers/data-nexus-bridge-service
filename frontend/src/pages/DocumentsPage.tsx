@@ -7,6 +7,10 @@ function DocumentsPage() {
   const [searchParams] = useSearchParams();
   const collectionIdFromUrl = searchParams.get('collection');
 
+  useEffect(() => {
+    document.title = 'Documents - DNBS';
+  }, []);
+
   const [documents, setDocuments] = useState<Document[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [fieldDefinitions, setFieldDefinitions] = useState<FieldDefinition[]>([]);

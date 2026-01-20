@@ -11,6 +11,10 @@ import {
 } from '../api/client';
 
 function ExternalTablesPage() {
+  useEffect(() => {
+    document.title = 'External Tables - DNBS';
+  }, []);
+
   const [tables, setTables] = useState<ExternalTable[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [isLoading, setIsLoading] = useState(true);

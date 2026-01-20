@@ -153,7 +153,7 @@ function DashboardLayout({ children }: DashboardLayoutProps) {
         {/* Header */}
         <div className="p-5 border-b border-white/10">
           <h2 className="text-xl font-bold bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent">
-            Data Nexus
+            Data Nexus Bridge Service
           </h2>
           <p className="text-gray-400 text-xs mt-1">{user?.username}</p>
         </div>

@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { reportsApi, syncSchedulesApi, type SystemReports } from '../api/client';
@@ -57,6 +58,10 @@ const Icons = {
 };
 
 function DashboardPage() {
+  useEffect(() => {
+    document.title = 'Dashboard - DNBS';
+  }, []);
+
   // Fetch reports data (includes stats for last 7 days)
   const { data: reports, isLoading } = useQuery({
     queryKey: ['system', 'reports', 7],

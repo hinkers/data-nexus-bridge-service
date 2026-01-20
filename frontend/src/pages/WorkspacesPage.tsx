@@ -1,9 +1,14 @@
+import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { workspacesApi, type Workspace } from '../api/client';
 
 function WorkspacesPage() {
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    document.title = 'Workspaces - DNBS';
+  }, []);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['workspaces'],

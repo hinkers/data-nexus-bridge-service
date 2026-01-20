@@ -28,6 +28,10 @@ const TabIcons = {
 };
 
 function SettingsPage() {
+  useEffect(() => {
+    document.title = 'Settings - DNBS';
+  }, []);
+
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<SettingsTab>('system');
   const [updateResult, setUpdateResult] = useState<{ success: boolean; message: string } | null>(null);
