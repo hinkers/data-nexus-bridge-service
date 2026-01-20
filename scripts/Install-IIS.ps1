@@ -907,6 +907,93 @@ function Invoke-DjangoMigrations {
     }
 }
 
+# Create Django superuser
+function New-DjangoSuperuser {
+    param(
+        [string]$InstallPath,
+        [string]$VenvPath
+    )
+
+    Write-Step "Creating admin superuser..."
+
+    $pythonExe = Join-Path $VenvPath "Scripts\python.exe"
+    $managePy = Join-Path $InstallPath "manage.py"
+
+    # Prompt for credentials
+    Write-Host ""
+    Write-Host "Please enter credentials for the admin account:" -ForegroundColor Yellow
+
+    $username = Read-Host "  Username"
+    if ([string]::IsNullOrWhiteSpace($username)) {
+        $username = "admin"
+        Write-Info "Using default username: admin"
+    }
+
+    $email = Read-Host "  Email (optional)"
+
+    # Read password securely
+    $password = Read-Host "  Password" -AsSecureString
+    $confirmPassword = Read-Host "  Confirm Password" -AsSecureString
+
+    # Convert to plain text for comparison
+    $bstr1 = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
+    $plainPassword = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr1)
+    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr1)
+
+    $bstr2 = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($confirmPassword)
+    $plainConfirm = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr2)
+    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr2)
+
+    if ($plainPassword -ne $plainConfirm) {
+        Write-Warning "Passwords do not match. Skipping superuser creation."
+        Write-Info "You can create a superuser later with: python manage.py createsuperuser"
+        return
+    }
+
+    if ([string]::IsNullOrWhiteSpace($plainPassword)) {
+        Write-Warning "Empty password provided. Skipping superuser creation."
+        Write-Info "You can create a superuser later with: python manage.py createsuperuser"
+        return
+    }
+
+    # Create superuser using Django management command with environment variables
+    Push-Location $InstallPath
+    try {
+        $env:DJANGO_SUPERUSER_PASSWORD = $plainPassword
+        $env:DJANGO_SUPERUSER_USERNAME = $username
+        $env:DJANGO_SUPERUSER_EMAIL = if ($email) { $email } else { "$username@localhost" }
+
+        $result = & $pythonExe $managePy createsuperuser --noinput 2>&1
+
+        # Clear sensitive env vars
+        Remove-Item Env:DJANGO_SUPERUSER_PASSWORD -ErrorAction SilentlyContinue
+        Remove-Item Env:DJANGO_SUPERUSER_USERNAME -ErrorAction SilentlyContinue
+        Remove-Item Env:DJANGO_SUPERUSER_EMAIL -ErrorAction SilentlyContinue
+
+        if ($LASTEXITCODE -eq 0) {
+            Write-Success "Superuser '$username' created successfully"
+        } else {
+            # Check if user already exists
+            if ($result -match "already exists" -or $result -match "duplicate") {
+                Write-Warning "User '$username' already exists"
+            } else {
+                Write-Warning "Could not create superuser: $result"
+                Write-Info "You can create a superuser later with: python manage.py createsuperuser"
+            }
+        }
+    } finally {
+        # Ensure env vars are cleared
+        Remove-Item Env:DJANGO_SUPERUSER_PASSWORD -ErrorAction SilentlyContinue
+        Remove-Item Env:DJANGO_SUPERUSER_USERNAME -ErrorAction SilentlyContinue
+        Remove-Item Env:DJANGO_SUPERUSER_EMAIL -ErrorAction SilentlyContinue
+        Pop-Location
+    }
+
+    # Clear password from memory
+    $plainPassword = $null
+    $plainConfirm = $null
+}
+
 # Main installation function
 function Install-DataNexusBridge {
     Show-Banner
@@ -964,6 +1051,9 @@ function Install-DataNexusBridge {
         # Setup scheduler task
         Install-SchedulerTask -InstallPath $config.InstallPath -VenvPath $venvPath -SiteName $config.SiteName
 
+        # Create superuser
+        New-DjangoSuperuser -InstallPath $config.InstallPath -VenvPath $venvPath
+
         Write-Host "`n" -NoNewline
         Write-Host "============================================" -ForegroundColor Green
         Write-Host "  Installation completed successfully!" -ForegroundColor Green
@@ -981,9 +1071,8 @@ function Install-DataNexusBridge {
         Write-Host "  View/manage it in Task Scheduler or run: Get-ScheduledTask -TaskName 'DataNexusBridge-Scheduler'"
         Write-Host ""
         Write-Host "Next steps:" -ForegroundColor Yellow
-        Write-Host "  1. Create a superuser: cd $($config.InstallPath) && venv\Scripts\python manage.py createsuperuser"
-        Write-Host "  2. Configure your Affinda API key in the .env file if not set"
-        Write-Host "  3. Access the admin panel at /admin/"
+        Write-Host "  1. Configure your Affinda API key in the .env file if not set"
+        Write-Host "  2. Access the admin panel at /admin/"
         Write-Host ""
 
         # Cleanup downloaded repo if we downloaded it

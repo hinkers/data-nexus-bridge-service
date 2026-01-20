@@ -1,36 +1,36 @@
 # Data Nexus Bridge Service - Python Dependencies
 
 # Django and REST Framework
-Django>=6.0
-djangorestframework>=3.16
-django-cors-headers>=4.9
-django-filter>=25.2
+Django>=5.0,<7.0
+djangorestframework>=3.15
+django-cors-headers>=4.3
+django-filter>=24.0
 
 # Affinda SDK
 affinda>=4.28
 
 # HTTP client
-httpx>=0.28
-aiohttp>=3.13
+httpx>=0.27
+aiohttp>=3.9
 
 # Environment and configuration
-python-dotenv>=1.2
+python-dotenv>=1.0
 
 # Database drivers (install as needed)
 # For SQL Server: pip install mssql-django pyodbc
 # For PostgreSQL: pip install psycopg2-binary
 
 # Azure Identity (for Azure integrations)
-azure-identity>=1.25
+azure-identity>=1.15
 
 # Utilities
-packaging>=25.0
-pydantic>=2.12
-croniter>=6.0  # For cron expression parsing in sync schedules
+packaging>=23.0
+pydantic>=2.5
+croniter>=2.0  # For cron expression parsing in sync schedules
 
 # Testing (development only)
-pytest>=9.0
-pytest-django>=4.11
+pytest>=8.0
+pytest-django>=4.8
 
 # IIS deployment (Windows only)
 wfastcgi  # Uncomment for IIS deployment
