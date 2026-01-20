@@ -821,6 +821,64 @@ function Install-IISSite {
     Write-Success "Website started"
 }
 
+# Install scheduler as Windows Task
+function Install-SchedulerTask {
+    param(
+        [string]$InstallPath,
+        [string]$VenvPath,
+        [string]$SiteName
+    )
+
+    Write-Step "Setting up scheduler task..."
+
+    $pythonExe = Join-Path -Path $VenvPath -ChildPath "Scripts\python.exe"
+    $managePy = Join-Path -Path $InstallPath -ChildPath "manage.py"
+    $taskName = "DataNexusBridge-Scheduler"
+
+    # Check if task already exists
+    $existingTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    if ($existingTask) {
+        Write-Info "Removing existing scheduler task..."
+        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+    }
+
+    # Create the action - run scheduler with --once flag (task scheduler will handle repetition)
+    $action = New-ScheduledTaskAction `
+        -Execute $pythonExe `
+        -Argument "$managePy run_scheduler --once" `
+        -WorkingDirectory $InstallPath
+
+    # Trigger: run every minute
+    $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 1) -RepetitionDuration (New-TimeSpan -Days 9999)
+
+    # Settings
+    $settings = New-ScheduledTaskSettingsSet `
+        -AllowStartIfOnBatteries `
+        -DontStopIfGoingOnBatteries `
+        -StartWhenAvailable `
+        -ExecutionTimeLimit (New-TimeSpan -Minutes 30) `
+        -MultipleInstances IgnoreNew
+
+    # Run as SYSTEM
+    $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+
+    # Register the task
+    Write-Info "Creating scheduler task: $taskName"
+    Register-ScheduledTask `
+        -TaskName $taskName `
+        -Action $action `
+        -Trigger $trigger `
+        -Settings $settings `
+        -Principal $principal `
+        -Description "DataNexus Bridge Service - Sync Scheduler (runs every minute to check for due sync schedules)" | Out-Null
+
+    # Start the task
+    Start-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+
+    Write-Success "Scheduler task created and started"
+    Write-Info "Task runs every minute to check for due sync schedules"
+}
+
 # Run Django migrations
 function Invoke-DjangoMigrations {
     param(
@@ -903,6 +961,9 @@ function Install-DataNexusBridge {
         # Run migrations
         Invoke-DjangoMigrations -InstallPath $config.InstallPath -VenvPath $venvPath
 
+        # Setup scheduler task
+        Install-SchedulerTask -InstallPath $config.InstallPath -VenvPath $venvPath -SiteName $config.SiteName
+
         Write-Host "`n" -NoNewline
         Write-Host "============================================" -ForegroundColor Green
         Write-Host "  Installation completed successfully!" -ForegroundColor Green
@@ -914,6 +975,10 @@ function Install-DataNexusBridge {
         } else {
             Write-Host "  http://$($config.HostHeader):80/" -ForegroundColor Cyan
         }
+        Write-Host ""
+        Write-Host "Scheduler:" -ForegroundColor Yellow
+        Write-Host "  A Windows Task 'DataNexusBridge-Scheduler' has been created to run sync schedules."
+        Write-Host "  View/manage it in Task Scheduler or run: Get-ScheduledTask -TaskName 'DataNexusBridge-Scheduler'"
         Write-Host ""
         Write-Host "Next steps:" -ForegroundColor Yellow
         Write-Host "  1. Create a superuser: cd $($config.InstallPath) && venv\Scripts\python manage.py createsuperuser"
