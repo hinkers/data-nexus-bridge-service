@@ -701,9 +701,16 @@ function Build-Frontend {
         # Build
         Write-Info "Building production bundle..."
         $npmBuildOutput = & npm run build 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host ($npmBuildOutput | Out-String) -ForegroundColor Red
-            throw "npm build failed with exit code $LASTEXITCODE"
+        $buildExitCode = $LASTEXITCODE
+
+        # Always show build output if there's an error
+        if ($buildExitCode -ne 0) {
+            Write-Host "`nBuild output:" -ForegroundColor Yellow
+            $npmBuildOutput | ForEach-Object {
+                $line = if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.ToString() } else { $_ }
+                Write-Host $line -ForegroundColor Red
+            }
+            throw "npm build failed with exit code $buildExitCode"
         }
 
         Write-Success "Frontend built successfully"
