@@ -687,46 +687,39 @@ function Build-Frontend {
         return
     }
 
-    # Find npm executable
-    $npmCmd = Get-Command npm -ErrorAction SilentlyContinue
-    if (-not $npmCmd) {
-        throw "npm not found in PATH"
-    }
-    $npmPath = $npmCmd.Source
-
-    # Use temp files for capturing output reliably
-    $stdoutFile = Join-Path $env:TEMP "npm-stdout.txt"
-    $stderrFile = Join-Path $env:TEMP "npm-stderr.txt"
+    # Use temp file for capturing combined output
+    $outputFile = Join-Path $env:TEMP "npm-output.txt"
 
     try {
-        # Install dependencies
+        # Install dependencies using cmd /c to capture output properly
         Write-Info "Installing npm dependencies..."
-        $installProcess = Start-Process -FilePath $npmPath -ArgumentList "install" -WorkingDirectory $frontendPath -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
+        $installProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "npm install 2>&1" -WorkingDirectory $frontendPath -NoNewWindow -Wait -PassThru -RedirectStandardOutput $outputFile
 
         if ($installProcess.ExitCode -ne 0) {
             Write-Host "`nnpm install output:" -ForegroundColor Yellow
-            if (Test-Path $stdoutFile) { Get-Content $stdoutFile | Write-Host }
-            if (Test-Path $stderrFile) { Get-Content $stderrFile | Write-Host -ForegroundColor Red }
+            if (Test-Path $outputFile) {
+                Get-Content $outputFile | ForEach-Object { Write-Host $_ -ForegroundColor Red }
+            }
             throw "npm install failed with exit code $($installProcess.ExitCode)"
         }
         Write-Success "npm dependencies installed"
 
-        # Build
+        # Build using cmd /c to capture output properly
         Write-Info "Building production bundle..."
-        $buildProcess = Start-Process -FilePath $npmPath -ArgumentList "run", "build" -WorkingDirectory $frontendPath -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
+        $buildProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "npm run build 2>&1" -WorkingDirectory $frontendPath -NoNewWindow -Wait -PassThru -RedirectStandardOutput $outputFile
 
         if ($buildProcess.ExitCode -ne 0) {
             Write-Host "`nnpm build output:" -ForegroundColor Yellow
-            if (Test-Path $stdoutFile) { Get-Content $stdoutFile | Write-Host }
-            if (Test-Path $stderrFile) { Get-Content $stderrFile | Write-Host -ForegroundColor Red }
+            if (Test-Path $outputFile) {
+                Get-Content $outputFile | ForEach-Object { Write-Host $_ -ForegroundColor Red }
+            }
             throw "npm build failed with exit code $($buildProcess.ExitCode)"
         }
 
         Write-Success "Frontend built successfully"
     } finally {
-        # Cleanup temp files
-        Remove-Item $stdoutFile -Force -ErrorAction SilentlyContinue
-        Remove-Item $stderrFile -Force -ErrorAction SilentlyContinue
+        # Cleanup temp file
+        Remove-Item $outputFile -Force -ErrorAction SilentlyContinue
     }
 }
 
