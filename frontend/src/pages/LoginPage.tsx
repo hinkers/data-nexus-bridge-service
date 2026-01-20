@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
 import type { FormEvent } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -91,12 +91,6 @@ function LoginPage() {
               {isLoading ? 'Signing in...' : 'Sign in'}
             </button>
           </form>
-
-          <div className="mt-6 text-center">
-            <p className="text-sm text-gray-500 bg-gray-50 rounded-lg py-2 px-4">
-              Test credentials: <span className="font-medium text-gray-700">admin / admin123</span>
-            </p>
-          </div>
         </div>
       </div>
     </div>
