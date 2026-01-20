@@ -632,24 +632,43 @@ function Install-PythonDependencies {
     # Enable wfastcgi (ignore errors if already enabled)
     Write-Info "Enabling wfastcgi in IIS..."
     $wfastcgiScript = Join-Path -Path $venvPath -ChildPath "Scripts\wfastcgi-enable.exe"
-    try {
-        if (Test-Path -Path $wfastcgiScript) {
-            $wfastcgiOutput = & $wfastcgiScript 2>&1
-            # Check if it was already enabled or succeeded
-            if ($LASTEXITCODE -eq 0 -or $wfastcgiOutput -match "already" -or $wfastcgiOutput -match "enabled") {
-                Write-Success "wfastcgi enabled"
-            } else {
-                Write-Warning "wfastcgi enable returned: $wfastcgiOutput"
-            }
+
+    # Use Start-Process to capture output without throwing exceptions
+    if (Test-Path -Path $wfastcgiScript) {
+        $pinfo = New-Object System.Diagnostics.ProcessStartInfo
+        $pinfo.FileName = $wfastcgiScript
+        $pinfo.RedirectStandardError = $true
+        $pinfo.RedirectStandardOutput = $true
+        $pinfo.UseShellExecute = $false
+        $pinfo.CreateNoWindow = $true
+
+        $process = New-Object System.Diagnostics.Process
+        $process.StartInfo = $pinfo
+        $process.Start() | Out-Null
+        $process.WaitForExit()
+
+        $stdout = $process.StandardOutput.ReadToEnd()
+        $stderr = $process.StandardError.ReadToEnd()
+        $wfastcgiOutput = "$stdout $stderr"
+
+        # Check if it succeeded or was already enabled
+        if ($process.ExitCode -eq 0) {
+            Write-Success "wfastcgi enabled"
+        } elseif ($wfastcgiOutput -match "already" -or $wfastcgiOutput -match "enabled" -or $wfastcgiOutput -match "exists") {
+            Write-Success "wfastcgi already enabled"
         } else {
-            # Fallback: try running wfastcgi module directly (older versions)
+            Write-Warning "wfastcgi enable output: $wfastcgiOutput"
+            Write-Info "Continuing anyway - wfastcgi may be configured manually"
+        }
+    } else {
+        # Fallback: try running wfastcgi module directly (older versions)
+        try {
             $wfastcgiOutput = & $venvPython -c "import wfastcgi; wfastcgi.enable()" 2>&1
             Write-Success "wfastcgi enabled"
+        } catch {
+            Write-Warning "wfastcgi enable warning: $($_.Exception.Message)"
+            Write-Info "Continuing - wfastcgi may already be enabled"
         }
-    } catch {
-        # If it fails, it might already be enabled - continue anyway
-        Write-Warning "wfastcgi enable warning: $($_.Exception.Message)"
-        Write-Info "Continuing - wfastcgi may already be enabled"
     }
 
     return $venvPath
