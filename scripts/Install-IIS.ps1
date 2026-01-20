@@ -660,11 +660,20 @@ function Build-Frontend {
     try {
         # Install dependencies
         Write-Info "Installing npm dependencies..."
-        & npm install --silent 2>&1 | Out-Null
+        $npmInstallOutput = & npm install 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host ($npmInstallOutput | Out-String) -ForegroundColor Red
+            throw "npm install failed with exit code $LASTEXITCODE"
+        }
+        Write-Success "npm dependencies installed"
 
         # Build
         Write-Info "Building production bundle..."
-        & npm run build 2>&1 | Out-Null
+        $npmBuildOutput = & npm run build 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host ($npmBuildOutput | Out-String) -ForegroundColor Red
+            throw "npm build failed with exit code $LASTEXITCODE"
+        }
 
         Write-Success "Frontend built successfully"
     } finally {
