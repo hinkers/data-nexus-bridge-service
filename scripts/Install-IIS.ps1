@@ -986,14 +986,14 @@ function Invoke-DjangoMigrations {
     $pythonExe = Join-Path $VenvPath "Scripts\python.exe"
     $managePy = Join-Path $InstallPath "manage.py"
 
-    # Use temp files to capture output without triggering PowerShell errors on warnings
+    # Use temp file to capture output
     $outputFile = Join-Path $env:TEMP "django-output.txt"
 
     Push-Location $InstallPath
     try {
-        # Collect static files
+        # Collect static files using cmd /c to merge stderr into stdout
         Write-Info "Collecting static files..."
-        $collectProcess = Start-Process -FilePath $pythonExe -ArgumentList "$managePy", "collectstatic", "--noinput" -WorkingDirectory $InstallPath -NoNewWindow -Wait -PassThru -RedirectStandardOutput $outputFile -RedirectStandardError $outputFile
+        $collectProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "`"$pythonExe`" `"$managePy`" collectstatic --noinput 2>&1" -WorkingDirectory $InstallPath -NoNewWindow -Wait -PassThru -RedirectStandardOutput $outputFile
         if ($collectProcess.ExitCode -ne 0) {
             Write-Warning "Static file collection had issues (non-critical)"
             if (Test-Path $outputFile) {
@@ -1003,9 +1003,9 @@ function Invoke-DjangoMigrations {
             Write-Success "Static files collected"
         }
 
-        # Run migrations
+        # Run migrations using cmd /c to merge stderr into stdout
         Write-Info "Running database migrations..."
-        $migrateProcess = Start-Process -FilePath $pythonExe -ArgumentList "$managePy", "migrate", "--noinput" -WorkingDirectory $InstallPath -NoNewWindow -Wait -PassThru -RedirectStandardOutput $outputFile -RedirectStandardError $outputFile
+        $migrateProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "`"$pythonExe`" `"$managePy`" migrate --noinput 2>&1" -WorkingDirectory $InstallPath -NoNewWindow -Wait -PassThru -RedirectStandardOutput $outputFile
         if ($migrateProcess.ExitCode -ne 0) {
             Write-Host ""
             Write-Host "========================================" -ForegroundColor Red
