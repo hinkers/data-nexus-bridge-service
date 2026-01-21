@@ -986,14 +986,16 @@ function Invoke-DjangoMigrations {
     $pythonExe = Join-Path $VenvPath "Scripts\python.exe"
     $managePy = Join-Path $InstallPath "manage.py"
 
-    # Use temp file to capture output
+    # Use temp files for output capture
     $outputFile = Join-Path $env:TEMP "django-output.txt"
+    $batchFile = Join-Path $env:TEMP "django-cmd.bat"
 
     Push-Location $InstallPath
     try {
-        # Collect static files using cmd /c to merge stderr into stdout
+        # Collect static files - write command to batch file to handle paths correctly
         Write-Info "Collecting static files..."
-        $collectProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "`"$pythonExe`" `"$managePy`" collectstatic --noinput 2>&1" -WorkingDirectory $InstallPath -NoNewWindow -Wait -PassThru -RedirectStandardOutput $outputFile
+        Set-Content -Path $batchFile -Value "@echo off`r`n`"$pythonExe`" `"$managePy`" collectstatic --noinput 2>&1"
+        $collectProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $batchFile -WorkingDirectory $InstallPath -NoNewWindow -Wait -PassThru -RedirectStandardOutput $outputFile
         if ($collectProcess.ExitCode -ne 0) {
             Write-Warning "Static file collection had issues (non-critical)"
             if (Test-Path $outputFile) {
@@ -1003,9 +1005,10 @@ function Invoke-DjangoMigrations {
             Write-Success "Static files collected"
         }
 
-        # Run migrations using cmd /c to merge stderr into stdout
+        # Run migrations - write command to batch file to handle paths correctly
         Write-Info "Running database migrations..."
-        $migrateProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "`"$pythonExe`" `"$managePy`" migrate --noinput 2>&1" -WorkingDirectory $InstallPath -NoNewWindow -Wait -PassThru -RedirectStandardOutput $outputFile
+        Set-Content -Path $batchFile -Value "@echo off`r`n`"$pythonExe`" `"$managePy`" migrate --noinput 2>&1"
+        $migrateProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $batchFile -WorkingDirectory $InstallPath -NoNewWindow -Wait -PassThru -RedirectStandardOutput $outputFile
         if ($migrateProcess.ExitCode -ne 0) {
             Write-Host ""
             Write-Host "========================================" -ForegroundColor Red
@@ -1043,6 +1046,7 @@ function Invoke-DjangoMigrations {
     } finally {
         Pop-Location
         Remove-Item $outputFile -Force -ErrorAction SilentlyContinue
+        Remove-Item $batchFile -Force -ErrorAction SilentlyContinue
     }
 }
 
