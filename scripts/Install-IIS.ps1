@@ -619,7 +619,8 @@ function Install-PythonDependencies {
 
         # Install additional IIS-specific packages if not in requirements
         Write-Info "Installing IIS deployment packages..."
-        $null = & $venvPip install wfastcgi mssql-django pyodbc 2>&1
+        # Use mssql-django>=1.4 to fix "SQL Server v17 is not supported" bug
+        $null = & $venvPip install wfastcgi "mssql-django>=1.4" pyodbc 2>&1
         if ($LASTEXITCODE -ne 0) {
             Write-Warning "Some IIS packages may have failed to install"
         } else {
