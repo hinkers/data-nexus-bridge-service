@@ -1009,12 +1009,16 @@ function Invoke-DjangoMigrations {
         if ($migrateProcess.ExitCode -ne 0) {
             Write-Host ""
             Write-Host "========================================" -ForegroundColor Red
-            Write-Host "  DATABASE CONNECTION FAILED" -ForegroundColor Red
+            Write-Host "  DATABASE MIGRATION FAILED" -ForegroundColor Red
             Write-Host "========================================" -ForegroundColor Red
             Write-Host ""
-            Write-Host "The database must exist before running this installer." -ForegroundColor Yellow
-            Write-Host ""
-            Write-Host "Please run the following SQL on your SQL Server:" -ForegroundColor White
+            # Show the actual error
+            if (Test-Path $outputFile) {
+                Write-Host "Migration output:" -ForegroundColor Yellow
+                Get-Content $outputFile | ForEach-Object { Write-Host $_ -ForegroundColor Red }
+                Write-Host ""
+            }
+            Write-Host "If the database does not exist, run the following SQL:" -ForegroundColor Yellow
             Write-Host ""
             Write-Host "  -- Create the database" -ForegroundColor Cyan
             Write-Host "  CREATE DATABASE your_database_name;" -ForegroundColor Cyan
@@ -1033,7 +1037,7 @@ function Invoke-DjangoMigrations {
             Write-Host ""
             Write-Host "Then re-run this installer." -ForegroundColor Yellow
             Write-Host ""
-            throw "Database not configured. Please create the database and user first."
+            throw "Database migration failed. See output above for details."
         }
         Write-Success "Migrations completed"
     } finally {
