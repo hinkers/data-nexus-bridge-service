@@ -604,14 +604,14 @@ function Install-PythonDependencies {
 
     if (Test-Path -Path $requirementsProdPath) {
         Write-Info "Installing production Python dependencies..."
-        & $venvPip install -r $requirementsProdPath
+        & $venvPip install -r $requirementsProdPath | Out-Null
         if ($LASTEXITCODE -ne 0) {
             throw "Failed to install production dependencies"
         }
         Write-Success "Production Python dependencies installed"
     } elseif (Test-Path -Path $requirementsPath) {
         Write-Info "Installing Python dependencies..."
-        & $venvPip install -r $requirementsPath
+        & $venvPip install -r $requirementsPath | Out-Null
         if ($LASTEXITCODE -ne 0) {
             throw "Failed to install dependencies"
         }
@@ -619,7 +619,7 @@ function Install-PythonDependencies {
 
         # Install additional IIS-specific packages if not in requirements
         Write-Info "Installing IIS deployment packages..."
-        & $venvPip install wfastcgi mssql-django pyodbc
+        & $venvPip install wfastcgi mssql-django pyodbc | Out-Null
         if ($LASTEXITCODE -ne 0) {
             Write-Warning "Some IIS packages may have failed to install"
         } else {
