@@ -986,22 +986,27 @@ function Invoke-DjangoMigrations {
     $pythonExe = Join-Path $VenvPath "Scripts\python.exe"
     $managePy = Join-Path $InstallPath "manage.py"
 
+    # Use temp files to capture output without triggering PowerShell errors on warnings
+    $outputFile = Join-Path $env:TEMP "django-output.txt"
+
     Push-Location $InstallPath
     try {
-        # Collect static files (this shouldn't need database)
+        # Collect static files
         Write-Info "Collecting static files..."
-        $collectStaticOutput = & $pythonExe $managePy collectstatic --noinput 2>&1
-        if ($LASTEXITCODE -ne 0) {
+        $collectProcess = Start-Process -FilePath $pythonExe -ArgumentList "$managePy", "collectstatic", "--noinput" -WorkingDirectory $InstallPath -NoNewWindow -Wait -PassThru -RedirectStandardOutput $outputFile -RedirectStandardError $outputFile
+        if ($collectProcess.ExitCode -ne 0) {
             Write-Warning "Static file collection had issues (non-critical)"
-            Write-Host ($collectStaticOutput | Out-String) -ForegroundColor Yellow
+            if (Test-Path $outputFile) {
+                Get-Content $outputFile | ForEach-Object { Write-Host $_ -ForegroundColor Yellow }
+            }
         } else {
             Write-Success "Static files collected"
         }
 
         # Run migrations
         Write-Info "Running database migrations..."
-        $migrateOutput = & $pythonExe $managePy migrate --noinput 2>&1
-        if ($LASTEXITCODE -ne 0) {
+        $migrateProcess = Start-Process -FilePath $pythonExe -ArgumentList "$managePy", "migrate", "--noinput" -WorkingDirectory $InstallPath -NoNewWindow -Wait -PassThru -RedirectStandardOutput $outputFile -RedirectStandardError $outputFile
+        if ($migrateProcess.ExitCode -ne 0) {
             Write-Host ""
             Write-Host "========================================" -ForegroundColor Red
             Write-Host "  DATABASE CONNECTION FAILED" -ForegroundColor Red
@@ -1033,6 +1038,7 @@ function Invoke-DjangoMigrations {
         Write-Success "Migrations completed"
     } finally {
         Pop-Location
+        Remove-Item $outputFile -Force -ErrorAction SilentlyContinue
     }
 }
 
