@@ -988,14 +988,48 @@ function Invoke-DjangoMigrations {
 
     Push-Location $InstallPath
     try {
-        # Collect static files
+        # Collect static files (this shouldn't need database)
         Write-Info "Collecting static files..."
-        & $pythonExe $managePy collectstatic --noinput 2>&1 | Out-Null
-        Write-Success "Static files collected"
+        $collectStaticOutput = & $pythonExe $managePy collectstatic --noinput 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "Static file collection had issues (non-critical)"
+            Write-Host ($collectStaticOutput | Out-String) -ForegroundColor Yellow
+        } else {
+            Write-Success "Static files collected"
+        }
 
         # Run migrations
         Write-Info "Running database migrations..."
-        & $pythonExe $managePy migrate --noinput
+        $migrateOutput = & $pythonExe $managePy migrate --noinput 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host ""
+            Write-Host "========================================" -ForegroundColor Red
+            Write-Host "  DATABASE CONNECTION FAILED" -ForegroundColor Red
+            Write-Host "========================================" -ForegroundColor Red
+            Write-Host ""
+            Write-Host "The database must exist before running this installer." -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "Please run the following SQL on your SQL Server:" -ForegroundColor White
+            Write-Host ""
+            Write-Host "  -- Create the database" -ForegroundColor Cyan
+            Write-Host "  CREATE DATABASE your_database_name;" -ForegroundColor Cyan
+            Write-Host "  GO" -ForegroundColor Cyan
+            Write-Host ""
+            Write-Host "  -- Create the login" -ForegroundColor Cyan
+            Write-Host "  CREATE LOGIN your_username WITH PASSWORD = 'your_password';" -ForegroundColor Cyan
+            Write-Host "  GO" -ForegroundColor Cyan
+            Write-Host ""
+            Write-Host "  -- Grant access" -ForegroundColor Cyan
+            Write-Host "  USE your_database_name;" -ForegroundColor Cyan
+            Write-Host "  GO" -ForegroundColor Cyan
+            Write-Host "  CREATE USER your_username FOR LOGIN your_username;" -ForegroundColor Cyan
+            Write-Host "  ALTER ROLE db_owner ADD MEMBER your_username;" -ForegroundColor Cyan
+            Write-Host "  GO" -ForegroundColor Cyan
+            Write-Host ""
+            Write-Host "Then re-run this installer." -ForegroundColor Yellow
+            Write-Host ""
+            throw "Database not configured. Please create the database and user first."
+        }
         Write-Success "Migrations completed"
     } finally {
         Pop-Location
