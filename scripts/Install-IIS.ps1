@@ -1074,25 +1074,37 @@ function New-DjangoSuperuser {
         return
     }
 
+    # Use temp files for batch command
+    $outputFile = Join-Path $env:TEMP "django-superuser-output.txt"
+    $batchFile = Join-Path $env:TEMP "django-superuser.bat"
+
     # Create superuser using Django management command with environment variables
     Push-Location $InstallPath
     try {
-        $env:DJANGO_SUPERUSER_PASSWORD = $password
-        $env:DJANGO_SUPERUSER_USERNAME = $username
-        $env:DJANGO_SUPERUSER_EMAIL = if ($email) { $email } else { "$username@localhost" }
+        $emailValue = if ($email) { $email } else { "$username@localhost" }
 
-        $result = & $pythonExe $managePy createsuperuser --noinput 2>&1
+        # Write batch file with environment variables set
+        $batchContent = @"
+@echo off
+set DJANGO_SUPERUSER_PASSWORD=$password
+set DJANGO_SUPERUSER_USERNAME=$username
+set DJANGO_SUPERUSER_EMAIL=$emailValue
+"$pythonExe" "$managePy" createsuperuser --noinput 2>&1
+"@
+        Set-Content -Path $batchFile -Value $batchContent
 
-        # Clear sensitive env vars
-        Remove-Item Env:DJANGO_SUPERUSER_PASSWORD -ErrorAction SilentlyContinue
-        Remove-Item Env:DJANGO_SUPERUSER_USERNAME -ErrorAction SilentlyContinue
-        Remove-Item Env:DJANGO_SUPERUSER_EMAIL -ErrorAction SilentlyContinue
+        $superuserProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $batchFile -WorkingDirectory $InstallPath -NoNewWindow -Wait -PassThru -RedirectStandardOutput $outputFile
 
-        if ($LASTEXITCODE -eq 0) {
+        $result = ""
+        if (Test-Path $outputFile) {
+            $result = Get-Content $outputFile -Raw
+        }
+
+        if ($superuserProcess.ExitCode -eq 0) {
             Write-Success "Superuser '$username' created successfully"
         } else {
             # Check if user already exists
-            if ($result -match "already exists" -or $result -match "duplicate") {
+            if ($result -match "already exists" -or $result -match "duplicate" -or $result -match "UNIQUE constraint") {
                 Write-Warning "User '$username' already exists"
             } else {
                 Write-Warning "Could not create superuser: $result"
@@ -1100,11 +1112,10 @@ function New-DjangoSuperuser {
             }
         }
     } finally {
-        # Ensure env vars are cleared
-        Remove-Item Env:DJANGO_SUPERUSER_PASSWORD -ErrorAction SilentlyContinue
-        Remove-Item Env:DJANGO_SUPERUSER_USERNAME -ErrorAction SilentlyContinue
-        Remove-Item Env:DJANGO_SUPERUSER_EMAIL -ErrorAction SilentlyContinue
         Pop-Location
+        # Cleanup temp files
+        Remove-Item $outputFile -Force -ErrorAction SilentlyContinue
+        Remove-Item $batchFile -Force -ErrorAction SilentlyContinue
     }
 }
 
